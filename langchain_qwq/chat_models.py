@@ -36,6 +36,7 @@ _BM = TypeVar("_BM", bound=BaseModel)
 _DictOrPydanticClass = Union[Dict[str, Any], Type[_BM], Type]
 _DictOrPydantic = Union[Dict, _BM]
 
+think_state = {"prefix_added": False, "suffix_needed": False}
 
 class ChatQwQ(BaseChatOpenAI):
     """Qwen QwQ Thinking chat model integration to access models hosted in Qwen QwQ Thinking's API.
@@ -140,7 +141,8 @@ class ChatQwQ(BaseChatOpenAI):
     )
     """DeepSeek API key"""
     api_base: str = Field(
-        default_factory=from_env("DASHSCOPE_API_BASE", default=DEFAULT_API_BASE)
+        default_factory=from_env("DASHSCOPE_API_BASE", default=DEFAULT_API_BASE),
+        alias = "base_url"
     )
     """DeepSeek API base URL"""
 
@@ -220,8 +222,10 @@ class ChatQwQ(BaseChatOpenAI):
         self,
         chunk: dict,
         default_chunk_class: Type,
-        base_generation_info: Optional[Dict],
+        base_generation_info: Optional[Dict]
     ) -> Optional[ChatGenerationChunk]:
+        global think_state
+
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk,
             default_chunk_class,
@@ -231,11 +235,24 @@ class ChatQwQ(BaseChatOpenAI):
         if (choices := chunk.get("choices")) and generation_chunk:
             top = choices[0]
             if isinstance(generation_chunk.message, AIMessageChunk):
+                # Add tag <think>
+                if not think_state["prefix_added"]:
+                    if delta := top.get("delta", {}):
+                        if "reasoning_content" in delta and delta["reasoning_content"]:
+                            generation_chunk.message.content = "<think>"
+                            think_state["prefix_added"] = True
+                            think_state["suffix_needed"] = True
                 if delta := top.get("delta", {}):
                     if reasoning_content := delta.get("reasoning_content"):
                         generation_chunk.message.additional_kwargs[
                             "reasoning_content"
                         ] = reasoning_content
+                        generation_chunk.message.content += reasoning_content
+                    # Add tag </think>
+                    elif content := delta.get("content"):
+                        if think_state["suffix_needed"] and think_state["prefix_added"]:
+                            generation_chunk.message.content += "</think>"
+                            think_state["suffix_needed"] = False
 
                     # Handle tool calls
                     if tool_calls := delta.get("tool_calls"):
@@ -330,6 +347,9 @@ class ChatQwQ(BaseChatOpenAI):
         finally:
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
+            # Reset think_state
+            global think_state
+            think_state = {"prefix_added": False, "suffix_needed": False}
 
     def _generate(
         self,
@@ -594,6 +614,9 @@ class ChatQwQ(BaseChatOpenAI):
         finally:
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
+            # Reset think_state
+            global think_state
+            think_state = {"prefix_added": False, "suffix_needed": False}
 
     def with_structured_output(
         self,
