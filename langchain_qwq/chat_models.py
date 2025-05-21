@@ -254,10 +254,11 @@ class ChatQwQ(BaseChatOpenAI):
                     # Add tag </think>
                     elif delta.get("content"):
                         if think_state["suffix_needed"] and think_state["prefix_added"]:
-                            generation_chunk.message.content = (
-                                "</think>" + generation_chunk.message.content
-                            )  # type: ignore
-                            think_state["suffix_needed"] = False
+                            if isinstance(generation_chunk.message.content, str):
+                                generation_chunk.message.content = (
+                                    "</think>" + generation_chunk.message.content
+                                )
+                                think_state["suffix_needed"] = False
 
                     # Handle tool calls
                     if tool_calls := delta.get("tool_calls"):

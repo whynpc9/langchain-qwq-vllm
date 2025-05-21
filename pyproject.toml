@@ -4,8 +4,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-qwq"
-version = "0.0.8"
-description = "An integration package connecting QwQ and LangChain"
+version = "0.0.9"
+description = "An integration package connecting Qwen 3, QwQ and LangChain"
 authors = ["Yiğit Bekir Kaya, PhD <yigit353@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/yigit353/langchain-qwq"
