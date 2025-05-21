@@ -36,10 +36,10 @@ _BM = TypeVar("_BM", bound=BaseModel)
 _DictOrPydanticClass = Union[Dict[str, Any], Type[_BM], Type]
 _DictOrPydantic = Union[Dict, _BM]
 
-think_state = {"prefix_added": False, "suffix_needed": False}
 
 class ChatQwQ(BaseChatOpenAI):
     """Qwen QwQ Thinking chat model integration to access models hosted in Qwen QwQ Thinking's API.
+    This integration also supports Qwen's thinking models like Qwen3.
 
     Setup:
         Install ``langchain-qwq`` and set environment variable ``DASHSCOPE_API_KEY``.
@@ -139,12 +139,15 @@ class ChatQwQ(BaseChatOpenAI):
     api_key: Optional[SecretStr] = Field(
         default_factory=secret_from_env("DASHSCOPE_API_KEY", default=None)
     )
-    """DeepSeek API key"""
+    """Qwen QwQ Thinking API key"""
     api_base: str = Field(
         default_factory=from_env("DASHSCOPE_API_BASE", default=DEFAULT_API_BASE),
-        alias = "base_url"
+        alias="base_url",
     )
-    """DeepSeek API base URL"""
+    """Qwen QwQ Thinking API base URL"""
+    think_state: dict = Field(
+        default_factory=lambda: {"prefix_added": False, "suffix_needed": False}
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -222,9 +225,9 @@ class ChatQwQ(BaseChatOpenAI):
         self,
         chunk: dict,
         default_chunk_class: Type,
-        base_generation_info: Optional[Dict]
+        base_generation_info: Optional[Dict],
     ) -> Optional[ChatGenerationChunk]:
-        global think_state
+        think_state = self.think_state
 
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk,
@@ -348,8 +351,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
             # Reset think_state
-            global think_state
-            think_state = {"prefix_added": False, "suffix_needed": False}
+            self.think_state = {"prefix_added": False, "suffix_needed": False}
 
     def _generate(
         self,
@@ -411,7 +413,7 @@ class ChatQwQ(BaseChatOpenAI):
             generation_info = last_chunk.generation_info or {}
             # Extract usage metadata from chunk if available
             if hasattr(last_chunk.message, "usage_metadata"):
-                usage_metadata = last_chunk.message.usage_metadata
+                usage_metadata = last_chunk.message.usage_metadata  # type: ignore
             else:
                 usage_metadata = {}
 
@@ -507,7 +509,7 @@ class ChatQwQ(BaseChatOpenAI):
             generation_info = last_chunk.generation_info or {}
             # Extract usage metadata from chunk if available
             if hasattr(last_chunk.message, "usage_metadata"):
-                usage_metadata = last_chunk.message.usage_metadata
+                usage_metadata = last_chunk.message.usage_metadata  # type: ignore
             else:
                 usage_metadata = {}
 
@@ -615,8 +617,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
             # Reset think_state
-            global think_state
-            think_state = {"prefix_added": False, "suffix_needed": False}
+            self.think_state = {"prefix_added": False, "suffix_needed": False}
 
     def with_structured_output(
         self,
