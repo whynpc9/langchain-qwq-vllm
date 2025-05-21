@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-qwq"
-version = "0.0.9"
+version = "0.0.10"
 description = "An integration package connecting Qwen 3, QwQ and LangChain"
 authors = ["Yiğit Bekir Kaya, PhD <yigit353@gmail.com>"]
 readme = "README.md"
@@ -25,6 +25,7 @@ openai = "^1.70.0"
 langchain-openai = "^0.3.11"
 python-dotenv = "^1.1.0"
 json-repair = "^0.40.0"
+notebook = "^7.4.2"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "T201"]
