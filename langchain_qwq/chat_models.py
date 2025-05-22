@@ -1,4 +1,4 @@
-"""Qwen QwQ Thingking chat models."""
+"""Integration for Qwen QwQ and Qwen3  with thinking chat models."""
 
 from json import JSONDecodeError
 from typing import (
@@ -39,7 +39,6 @@ _DictOrPydantic = Union[Dict, _BM]
 
 class ChatQwQ(BaseChatOpenAI):
     """Qwen QwQ Thinking chat model integration to access models hosted in Qwen QwQ Thinking's API.
-    This integration also supports Qwen's thinking models like Qwen3.
 
     Setup:
         Install ``langchain-qwq`` and set environment variable ``DASHSCOPE_API_KEY``.
@@ -145,9 +144,6 @@ class ChatQwQ(BaseChatOpenAI):
         alias="base_url",
     )
     """Qwen QwQ Thinking API base URL"""
-    think_state: dict = Field(
-        default_factory=lambda: {"prefix_added": False, "suffix_needed": False}
-    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -227,8 +223,6 @@ class ChatQwQ(BaseChatOpenAI):
         default_chunk_class: Type,
         base_generation_info: Optional[Dict],
     ) -> Optional[ChatGenerationChunk]:
-        think_state = self.think_state
-
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk,
             default_chunk_class,
@@ -238,27 +232,11 @@ class ChatQwQ(BaseChatOpenAI):
         if (choices := chunk.get("choices")) and generation_chunk:
             top = choices[0]
             if isinstance(generation_chunk.message, AIMessageChunk):
-                # Add tag <think>
-                if not think_state["prefix_added"]:
-                    if delta := top.get("delta", {}):
-                        if "reasoning_content" in delta and delta["reasoning_content"]:
-                            generation_chunk.message.content = "<think>"
-                            think_state["prefix_added"] = True
-                            think_state["suffix_needed"] = True
                 if delta := top.get("delta", {}):
                     if reasoning_content := delta.get("reasoning_content"):
                         generation_chunk.message.additional_kwargs[
                             "reasoning_content"
                         ] = reasoning_content
-                        generation_chunk.message.content += reasoning_content
-                    # Add tag </think>
-                    elif delta.get("content"):
-                        if think_state["suffix_needed"] and think_state["prefix_added"]:
-                            if isinstance(generation_chunk.message.content, str):
-                                generation_chunk.message.content = (
-                                    "</think>" + generation_chunk.message.content
-                                )
-                                think_state["suffix_needed"] = False
 
                     # Handle tool calls
                     if tool_calls := delta.get("tool_calls"):
@@ -353,8 +331,6 @@ class ChatQwQ(BaseChatOpenAI):
         finally:
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
-            # Reset think_state
-            self.think_state = {"prefix_added": False, "suffix_needed": False}
 
     def _generate(
         self,
@@ -619,8 +595,6 @@ class ChatQwQ(BaseChatOpenAI):
         finally:
             # Restore the original method
             AIMessageChunk.__add__ = original_add  # type: ignore
-            # Reset think_state
-            self.think_state = {"prefix_added": False, "suffix_needed": False}
 
     def with_structured_output(
         self,
@@ -840,3 +814,129 @@ class ChatQwQ(BaseChatOpenAI):
             chain = RunnableLambda(process_without_raw)
 
         return chain
+
+
+class ChatQwen(ChatQwQ):
+    """Qwen Qwen3 Thinking chat model integration to access models hosted in Qwen Qwen3's API.
+
+    Setup:
+        Install ``langchain-qwq`` and set environment variable ``DASHSCOPE_API_KEY``.
+
+        .. code-block:: bash
+
+            pip install -U langchain-qwq
+            export DASHSCOPE_API_KEY="your-api-key"
+
+    Key init args — completion params:
+        model: str
+            Name of Qwen Qwen3 model to use, e.g. "qwen3-32b".
+        temperature: float
+            Sampling temperature.
+        max_tokens: Optional[int]
+            Max number of tokens to generate.
+
+    Key init args — client params:
+        timeout: Optional[float]
+            Timeout for requests.
+        max_retries: int
+            Max number of retries.
+        api_key: Optional[str]
+            Qwen QwQ Thingking API key. If not passed in will be read from env var DASHSCOPE_API_KEY.
+
+    See full list of supported init args and their descriptions in the params section.
+
+    Instantiate:
+        .. code-block:: python
+
+            from langchain_qwq import ChatQwen
+
+            llm = ChatQwen(
+                model="...",
+                temperature=0,
+                max_tokens=None,
+                timeout=None,
+                max_retries=2,
+                # api_key="...",
+                # other params...
+            )
+
+    Invoke:
+        .. code-block:: python
+
+            messages = [
+                ("system", "You are a helpful translator. Translate the user sentence to French."),
+                ("human", "I love programming."),
+            ]
+            llm.invoke(messages)
+
+    Stream:
+        .. code-block:: python
+
+            for chunk in llm.stream(messages):
+                print(chunk.text(), end="")
+
+        .. code-block:: python
+
+            stream = llm.stream(messages)
+            full = next(stream)
+            for chunk in stream:
+                full += chunk
+            full
+
+    Async:
+        .. code-block:: python
+
+            # Basic async invocation
+            result = await llm.ainvoke(messages)
+
+            # Access content and reasoning
+            content = result.content
+            reasoning = result.additional_kwargs.get("reasoning_content", "")
+
+            # Stream response chunks
+            async for chunk in await llm.astream(messages):
+                print(chunk.content, end="")
+                # Access reasoning in each chunk
+                reasoning_chunk = chunk.additional_kwargs.get("reasoning_content", "")
+
+            # Process tool calls in completion
+            if hasattr(result, "tool_calls") and result.tool_calls:
+                for tool_call in result.tool_calls:
+                    tool_id = tool_call.get("id")
+                    tool_name = tool_call.get("name")
+                    tool_args = tool_call.get("args")
+                    # Process tool call...
+
+            # Batch processing of multiple message sets
+            results = await llm.abatch([messages1, messages2])
+
+    """  # noqa: E501
+
+    model_name: str = Field(default="qwen3-32b", alias="model")
+    """The name of the model"""
+
+    enable_thinking: Optional[bool] = Field(default=None)
+    """Whether to enable thinking"""
+
+    thinking_budget: Optional[int] = Field(default=None)
+    """Thinking budget"""
+
+    @property
+    def _llm_type(self) -> str:
+        """Return type of chat model."""
+        return "chat-qwen"
+
+    @property
+    def _default_params(self) -> Dict[str, Any]:
+        """Get the default parameters for calling ChatQwen API."""
+        params = super()._default_params
+        if self.enable_thinking is not None:
+            if "extra_body" not in params:
+                params["extra_body"] = {}
+            params["extra_body"]["enable_thinking"] = self.enable_thinking
+        if self.thinking_budget is not None:
+            if "extra_body" not in params:
+                params["extra_body"] = {}
+            params["extra_body"]["thinking_budget"] = self.thinking_budget
+
+        return params
