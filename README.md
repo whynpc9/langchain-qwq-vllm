@@ -10,7 +10,7 @@ pip install -U langchain-qwq
 
 And you should configure credentials by setting the following environment variables:
 
-* `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ models
+* `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ or Qwen3 models
 * `DASHSCOPE_API_BASE`: (Optional) API base URL, defaults to "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 ## Chat Models (QwQ)
@@ -60,9 +60,7 @@ reasoning = response.additional_kwargs.get("reasoning_content", "")
 from langchain_qwq import ChatQwQ
 from langchain_qwq.utils import convert_reasoning_to_content
 model = ChatQwQ(
-    model="qwq-plus",
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
+    model="qwq-plus"
 for chunk in convert_reasoning_to_content(model.stream("hello")):
     print(chunk)
 ```
