@@ -61,6 +61,7 @@ from langchain_qwq import ChatQwQ
 from langchain_qwq.utils import convert_reasoning_to_content
 model = ChatQwQ(
     model="qwq-plus"
+)
 for chunk in convert_reasoning_to_content(model.stream("hello")):
     print(chunk)
 ```
