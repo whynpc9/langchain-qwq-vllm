@@ -8,6 +8,17 @@ This package contains the LangChain integration with QwQ and Qwen3
 pip install -U langchain-qwq
 ```
 
+OR if you want to install additional dependencies when you clone the repo:
+
+```bash
+pip install -U langchain-qwq[docs]
+pip install -U langchain-qwq[test]
+pip install -U langchain-qwq[codespell]
+pip install -U langchain-qwq[lint]
+pip install -U langchain-qwq[typing]
+```
+### Environment Variables
+
 And you should configure credentials by setting the following environment variables:
 
 * `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ or Qwen3 models
