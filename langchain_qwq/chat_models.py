@@ -291,8 +291,9 @@ class ChatQwQ(BaseChatOpenAI):
             for chunk in chunks:
                 if isinstance(chunk.message.content, str):
                     content += chunk.message.content
-                reasoning_content += chunk.message.additional_kwargs.get(
-                    "reasoning_content", ""
+
+                reasoning_content += (
+                    chunk.message.additional_kwargs.get("reasoning_content", "") or ""
                 )
 
                 if chunk_tool_calls := chunk.message.additional_kwargs.get(
@@ -387,10 +388,9 @@ class ChatQwQ(BaseChatOpenAI):
             for chunk in chunks:
                 if isinstance(chunk.message.content, str):
                     content += chunk.message.content
-                reasoning_content += chunk.message.additional_kwargs.get(
-                    "reasoning_content", ""
+                reasoning_content += (
+                    chunk.message.additional_kwargs.get("reasoning_content", "") or ""
                 )
-
                 if chunk_tool_calls := chunk.message.additional_kwargs.get(
                     "tool_calls", []
                 ):
@@ -487,22 +487,32 @@ class ChatQwQ(BaseChatOpenAI):
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
         (
-            """Create a version of this chat model that returns outputs formatted """
+            """Create a version of this chat model that returns outputs formatted"""
             """according to the given schema.
 
         Args:
             schema: The schema to use for formatting the output. Can be a dictionary"""
             """or a Pydantic model.
-            include_raw: Whether to include the raw model output in the output.
-            method: The method to use for formatting the output.
-            strict: Whether to enforce strict validation of the output against """
+        include_raw: Whether to include the raw model output in the output.
+        method: The method to use for formatting the output.
+        strict: Whether to enforce strict validation of the output against """
             """the schema. If not provided, will default to True.
-            **kwargs: Additional keyword arguments to pass to the model.
+        **kwargs: Additional keyword arguments to pass to the model.
 
-        Returns:
+    Returns:
             A runnable that returns outputs formatted according to the given schema.
         """
         )
+
+        if method == "json_mode":
+            if "qwq" in self.model_name.lower():
+                raise ValueError(
+                    "json_mode is not supported for Qwen QwQ models. "
+                    "Please use function_calling or json_schema instead."
+                )
+            else:
+                self.model_kwargs["response_format"] = {"type": "json_object"}
+
         if method == "json_schema" or method == "json_mode":
             import json
             import re
@@ -897,3 +907,27 @@ class ChatQwen(ChatQwQ):
             params["extra_body"]["thinking_budget"] = self.thinking_budget
 
         return params
+
+    def with_structured_output(
+        self,
+        schema: Optional[_DictOrPydanticClass] = None,
+        *,
+        method: Literal[
+            "function_calling", "json_mode", "json_schema"
+        ] = "function_calling",
+        include_raw: bool = False,
+        strict: Optional[bool] = None,
+    ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
+        """
+        Create a version of this chat model that returns outputs formatted
+        """
+        """When method is json_model,it will disable thinking for Qwen3
+        according to the Qwen3 API documentation
+        """
+
+        if method == "json_mode":
+            self.thinking_budget = None
+            self.enable_thinking = False
+        return super().with_structured_output(
+            schema, method=method, include_raw=include_raw, strict=strict
+        )
