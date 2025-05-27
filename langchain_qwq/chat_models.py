@@ -479,9 +479,7 @@ class ChatQwQ(BaseChatOpenAI):
         self,
         schema: Optional[_DictOrPydanticClass] = None,
         *,
-        method: Literal[
-            "function_calling", "json_mode", "json_schema"
-        ] = "function_calling",
+        method: Literal["function_calling", "json_mode", "json_schema"] = "json_schema",
         include_raw: bool = False,
         strict: Optional[bool] = None,
         **kwargs: Any,
@@ -506,10 +504,7 @@ class ChatQwQ(BaseChatOpenAI):
 
         if method == "json_mode":
             if "qwq" in self.model_name.lower():
-                raise ValueError(
-                    "json_mode is not supported for Qwen QwQ models. "
-                    "Please use function_calling or json_schema instead."
-                )
+                method = "json_schema"
             else:
                 self.model_kwargs["response_format"] = {"type": "json_object"}
 
@@ -768,6 +763,37 @@ class ChatQwQ(BaseChatOpenAI):
                 )
 
             if include_raw:
+
+                def process_with_raw(x: Any) -> Dict[str, Any]:
+                    raw_output = llm.invoke(x)
+                    try:
+                        if isinstance(raw_output.content, str):
+                            parsed = output_parser.parse(raw_output.content)
+                        else:
+                            parsed = raw_output.content
+                        return {
+                            "raw": raw_output,
+                            "parsed": parsed,
+                            "parsing_error": None,
+                        }
+                    except Exception as e:
+                        return {"raw": raw_output, "parsed": None, "parsing_error": e}
+
+                async def aprocess_with_raw(x: Any) -> Dict[str, Any]:
+                    raw_output = await llm.ainvoke(prepare_messages(x))
+                    try:
+                        if isinstance(raw_output.content, str):
+                            parsed = output_parser.parse(raw_output.content)
+                        else:
+                            parsed = raw_output.content
+                        return {
+                            "raw": raw_output,
+                            "parsed": parsed,
+                            "parsing_error": None,
+                        }
+                    except Exception as e:
+                        return {"raw": raw_output, "parsed": None, "parsing_error": e}
+
                 parser_assign = RunnablePassthrough.assign(
                     parsed=itemgetter("raw") | output_parser,
                     parsing_error=lambda _: None,
@@ -779,6 +805,8 @@ class ChatQwQ(BaseChatOpenAI):
                 return RunnableMap(raw=llm) | parser_with_fallback
             else:
                 return llm | output_parser
+
+            chain = RunnableLambda(process_with_raw, afunc=aprocess_with_raw)
 
         return chain
 
@@ -912,9 +940,7 @@ class ChatQwen(ChatQwQ):
         self,
         schema: Optional[_DictOrPydanticClass] = None,
         *,
-        method: Literal[
-            "function_calling", "json_mode", "json_schema"
-        ] = "function_calling",
+        method: Literal["function_calling", "json_mode", "json_schema"] = "json_schema",
         include_raw: bool = False,
         strict: Optional[bool] = None,
     ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
