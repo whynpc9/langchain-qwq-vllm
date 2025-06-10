@@ -174,9 +174,7 @@ model = ChatQwen(model="qwen3-32b", thinking_budget=100)
 for chunk in model.stream("hello!"):
     print(chunk)
 
-
 ```
 
-Qwen3's integration is through ChatQwen, which inherits from QwQ, so you can use any features supported by ChatQwQ such as async, etc.
 
-
+also ChatQwen support features like `with_structured_output`,`function_calling`  as same as ChatQwQ.
