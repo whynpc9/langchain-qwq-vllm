@@ -384,7 +384,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Convert accumulated tool calls to final format
             tool_calls = list(current_tool_calls.values())
             for tool_call in tool_calls:
-                tool_call["args"] = json.loads(tool_call["args"])
+                tool_call["args"] = json.loads(tool_call["args"])  # type: ignore
 
             last_chunk = chunks[-1]
 
@@ -480,7 +480,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Convert accumulated tool calls to final format
             tool_calls = list(current_tool_calls.values())
             for tool_call in tool_calls:
-                tool_call["args"] = json.loads(tool_call["args"])
+                tool_call["args"] = json.loads(tool_call["args"])  # type: ignore
 
             last_chunk = chunks[-1]
 
@@ -869,7 +869,7 @@ class ChatQwQ(BaseChatOpenAI):
         return chain
 
 
-class ChatQwen(ChatQwQ):
+class ChatQwen(BaseChatOpenAI):
     """Qwen Qwen3 Thinking chat model integration to access models hosted in Qwen Qwen3's API.
 
     Setup:
@@ -888,6 +888,11 @@ class ChatQwen(ChatQwQ):
         max_tokens: Optional[int]
             Max number of tokens to generate.
 
+        enable_thinking: Optional[bool]
+            Whether to enable thinking.
+        thinking_budget: Optional[int]
+            Thinking budget.
+
     Key init args — client params:
         timeout: Optional[float]
             Timeout for requests.
@@ -904,11 +909,13 @@ class ChatQwen(ChatQwQ):
             from langchain_qwq import ChatQwen
 
             llm = ChatQwen(
-                model="...",
+                model="qwen3-32b",
                 temperature=0,
                 max_tokens=None,
                 timeout=None,
                 max_retries=2,
+                enable_thinking=True,
+                thinking_budget=100,
                 # api_key="...",
                 # other params...
             )
@@ -974,6 +981,18 @@ class ChatQwen(ChatQwQ):
     thinking_budget: Optional[int] = Field(default=None)
     """Thinking budget"""
 
+    api_key: Optional[SecretStr] = Field(
+        default_factory=secret_from_env("DASHSCOPE_API_KEY", default=None)
+    )
+
+    """Qwen Qwen Thinking API key"""
+    api_base: str = Field(
+        default_factory=from_env("DASHSCOPE_API_BASE", default=DEFAULT_API_BASE),
+        alias="base_url",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -982,14 +1001,481 @@ class ChatQwen(ChatQwQ):
     @property
     def _default_params(self) -> Dict[str, Any]:
         """Get the default parameters for calling ChatQwen API."""
-        params = super()._default_params
         if self.enable_thinking is not None:
-            if "extra_body" not in params:
-                params["extra_body"] = {}
-            params["extra_body"]["enable_thinking"] = self.enable_thinking
+            if self.extra_body is None:
+                self.extra_body = {"enable_thinking": self.enable_thinking}
+            else:
+                self.extra_body = {
+                    **self.extra_body,
+                    "enable_thinking": self.enable_thinking,
+                }
+
         if self.thinking_budget is not None:
-            if "extra_body" not in params:
-                params["extra_body"] = {}
-            params["extra_body"]["thinking_budget"] = self.thinking_budget
+            if self.extra_body is None:
+                self.extra_body = {"thinking_budget": self.thinking_budget}
+            else:
+                self.extra_body = {
+                    **self.extra_body,
+                    "thinking_budget": self.thinking_budget,
+                }
+
+        params = super()._default_params
 
         return params
+
+    @model_validator(mode="after")
+    def validate_environment(self) -> Self:
+        if self.api_base == DEFAULT_API_BASE and not (
+            self.api_key and self.api_key.get_secret_value()
+        ):
+            raise ValueError(
+                "If using default api base, DASHSCOPE_API_KEY must be set."
+            )
+        client_params: dict = {
+            k: v
+            for k, v in {
+                "api_key": self.api_key.get_secret_value() if self.api_key else None,
+                "base_url": self.api_base,
+                "timeout": self.request_timeout,
+                "max_retries": self.max_retries,
+                "default_headers": self.default_headers,
+                "default_query": self.default_query,
+            }.items()
+            if v is not None
+        }
+
+        if not (self.client or None):
+            sync_specific: dict = {"http_client": self.http_client}
+            self.root_client = openai.OpenAI(**client_params, **sync_specific)
+            self.client = self.root_client.chat.completions
+        if not (self.async_client or None):
+            async_specific: dict = {"http_client": self.http_async_client}
+            self.root_async_client = openai.AsyncOpenAI(
+                **client_params,
+                **async_specific,
+            )
+            self.async_client = self.root_async_client.chat.completions
+        return self
+
+    def _create_chat_result(
+        self,
+        response: Union[dict, openai.BaseModel],
+        generation_info: Optional[Dict] = None,
+    ) -> ChatResult:
+        rtn = super()._create_chat_result(response, generation_info)
+
+        if not isinstance(response, openai.BaseModel):
+            return rtn
+
+        if hasattr(response.choices[0].message, "reasoning_content"):  # type: ignore
+            rtn.generations[0].message.additional_kwargs["reasoning_content"] = (
+                response.choices[0].message.reasoning_content  # type: ignore
+            )
+        # Handle use via OpenRouter
+        elif hasattr(response.choices[0].message, "model_extra"):  # type: ignore
+            model_extra = response.choices[0].message.model_extra  # type: ignore
+            if isinstance(model_extra, dict) and (
+                reasoning := model_extra.get("reasoning")
+            ):
+                rtn.generations[0].message.additional_kwargs["reasoning_content"] = (
+                    reasoning
+                )
+
+        return rtn
+
+    def _convert_chunk_to_generation_chunk(
+        self,
+        chunk: dict,
+        default_chunk_class: Type,
+        base_generation_info: Optional[Dict],
+    ) -> Optional[ChatGenerationChunk]:
+        generation_chunk = super()._convert_chunk_to_generation_chunk(
+            chunk,
+            default_chunk_class,
+            base_generation_info,
+        )
+        if (choices := chunk.get("choices")) and generation_chunk:
+            top = choices[0]
+            if isinstance(generation_chunk.message, AIMessageChunk):
+                if reasoning_content := top.get("delta", {}).get("reasoning_content"):
+                    generation_chunk.message.additional_kwargs["reasoning_content"] = (
+                        reasoning_content
+                    )
+                # Handle use via OpenRouter
+                elif reasoning := top.get("delta", {}).get("reasoning"):
+                    generation_chunk.message.additional_kwargs["reasoning_content"] = (
+                        reasoning
+                    )
+
+        return generation_chunk
+
+    def _stream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        kwargs["stream_options"] = {"include_usage": True}
+        try:
+            for chunk in super()._stream(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            ):
+                yield chunk
+        except JSONDecodeError as e:
+            raise JSONDecodeError(
+                "DashScope Qwen API returned an invalid response. "
+                "Please check the API status and try again.",
+                e.doc,
+                e.pos,
+            ) from e
+
+    async def _astream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        kwargs["stream_options"] = {"include_usage": True}
+        try:
+            async for chunk in super()._astream(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            ):
+                yield chunk
+        except JSONDecodeError as e:
+            raise JSONDecodeError(
+                "DashScope Qwen API returned an invalid response. "
+                "Please check the API status and try again.",
+                e.doc,
+                e.pos,
+            ) from e
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.streaming = True
+        try:
+            return super()._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+        except JSONDecodeError as e:
+            raise JSONDecodeError(
+                "DashScope Qwen API returned an invalid response. "
+                "Please check the API status and try again.",
+                e.doc,
+                e.pos,
+            ) from e
+
+    async def _agenerate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.streaming = True
+        try:
+            return await super()._agenerate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+        except JSONDecodeError as e:
+            raise JSONDecodeError(
+                "DashScope Qwen API returned an invalid response. "
+                "Please check the API status and try again.",
+                e.doc,
+                e.pos,
+            ) from e
+
+    def with_structured_output(
+        self,
+        schema: Optional[_DictOrPydanticClass] = None,
+        *,
+        method: Literal[
+            "function_calling", "json_mode", "json_schema"
+        ] = "function_calling",
+        include_raw: bool = False,
+        strict: Optional[bool] = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
+        """Model wrapper that returns outputs formatted to match the given schema.
+
+        Args:
+            schema:
+                The output schema. Can be passed in as:
+
+                - an OpenAI function/tool schema,
+                - a JSON Schema,
+                - a TypedDict class (support added in 0.1.20),
+                - or a Pydantic class.
+
+                If ``schema`` is a Pydantic class then the model output will be a
+                Pydantic instance of that class, and the model-generated fields will be
+                validated by the Pydantic class. Otherwise the model output will be a
+                dict and will not be validated. See :meth:`langchain_core.utils.function_calling.convert_to_openai_tool`
+                for more on how to properly specify types and descriptions of
+                schema fields when specifying a Pydantic or TypedDict class.
+
+            method: The method for steering model generation, one of:
+
+                - "function_calling":
+                    Uses DashScope Qwen's `tool-calling features <https://help.aliyun.com/zh/model-studio/qwen-function-calling>`_.
+                - "json_mode":
+                    Uses DashScope Qwen's `JSON mode feature <https://help.aliyun.com/zh/model-studio/json-mode>`_.
+
+
+            include_raw:
+                If False then only the parsed structured output is returned. If
+                an error occurs during model output parsing it will be raised. If True
+                then both the raw model response (a BaseMessage) and the parsed model
+                response will be returned. If an error occurs during output parsing it
+                will be caught and returned as well. The final output is always a dict
+                with keys "raw", "parsed", and "parsing_error".
+
+            kwargs: Additional keyword args aren't supported.
+
+        Returns:
+            A Runnable that takes same inputs as a :class:`langchain_core.language_models.chat.BaseChatModel`.
+
+            | If ``include_raw`` is False and ``schema`` is a Pydantic class, Runnable outputs an instance of ``schema`` (i.e., a Pydantic object). Otherwise, if ``include_raw`` is False then Runnable outputs a dict.
+
+            | If ``include_raw`` is True, then Runnable outputs a dict with keys:
+
+            - "raw": BaseMessage
+            - "parsed": None if there was a parsing error, otherwise the type depends on the ``schema`` as described above.
+            - "parsing_error": Optional[BaseException]
+
+        """  # noqa: E501
+        from operator import itemgetter
+
+        from langchain_core.messages import (
+            HumanMessage,
+            SystemMessage,
+        )
+        from langchain_core.output_parsers import (
+            JsonOutputKeyToolsParser,
+            JsonOutputParser,
+            PydanticOutputParser,
+            PydanticToolsParser,
+        )
+        from langchain_core.runnables import (
+            RunnableLambda,
+            RunnableMap,
+            RunnablePassthrough,
+        )
+        from langchain_core.utils.function_calling import (
+            convert_to_json_schema,
+            convert_to_openai_tool,
+        )
+        from langchain_openai.chat_models.base import _is_pydantic_class
+
+        if kwargs:
+            raise ValueError(f"Received unsupported arguments {kwargs}")
+        if strict is not None and method == "json_mode":
+            raise ValueError(
+                "Argument `strict` is not supported with `method`='json_mode'"
+            )
+
+        if method == "json_schema":
+            method = "function_calling"
+
+        is_pydantic_schema = _is_pydantic_class(schema)
+
+        # because the tool_choice option of Qwen3 model only supports `auto` or `none`
+        # we need to disable it to avoid unnecessary errors
+
+        if method == "function_calling":
+            if schema is None:
+                raise ValueError(
+                    "schema must be specified when method is not 'json_mode'. "
+                    "Received None."
+                )
+
+            tool_name = convert_to_openai_tool(schema)["function"]["name"]
+            bind_kwargs = self._filter_disabled_params(
+                parallel_tool_calls=False,
+                strict=strict,
+                ls_structured_output_format={
+                    "kwargs": {"method": method, "strict": strict},
+                    "schema": schema,
+                },
+            )
+
+            llm = self.bind_tools([schema], **bind_kwargs)
+            if is_pydantic_schema:
+                output_parser: Runnable = PydanticToolsParser(
+                    tools=[schema],  # type: ignore[list-item]
+                    first_tool_only=True,  # type: ignore[list-item]
+                )
+            else:
+                output_parser = JsonOutputKeyToolsParser(
+                    key_name=tool_name, first_tool_only=True
+                )
+
+            if include_raw:
+                parser_assign = RunnablePassthrough.assign(
+                    parsed=itemgetter("raw") | output_parser,
+                    parsing_error=lambda _: None,
+                )
+                parser_none = RunnablePassthrough.assign(parsed=lambda _: None)
+                parser_with_fallback = parser_assign.with_fallbacks(
+                    [parser_none], exception_key="parsing_error"
+                )
+                chain = RunnableMap(raw=llm) | parser_with_fallback
+            else:
+                chain = llm | output_parser
+
+        elif method == "json_mode":
+            # json mode only support when Qwen3 model close thinking
+            self.enable_thinking = False
+
+            llm = self.bind(
+                response_format={"type": "json_object"},
+                ls_structured_output_format={
+                    "kwargs": {"method": method},
+                    "schema": schema,
+                },
+            )
+            output_parser = (
+                PydanticOutputParser(pydantic_object=schema)  # type: ignore[arg-type]
+                if is_pydantic_schema
+                else JsonOutputParser()
+            )
+
+            if schema is None:
+                schema_dict = {}
+            else:
+                # Extract schema information using convert_to_json_schema
+                try:
+                    schema_dict = convert_to_json_schema(schema)
+                except Exception:
+                    # Fallback for cases where convert_to_json_schema fails
+                    if isinstance(schema, type) and is_basemodel_subclass(schema):
+                        if hasattr(schema, "model_json_schema"):
+                            schema_dict = schema.model_json_schema()  # Pydantic v2
+                        elif hasattr(schema, "schema"):
+                            schema_dict = schema.schema()  # Pydantic v1
+                        else:
+                            raise ValueError(f"Unsupported Pydantic model: {schema}")
+                    elif isinstance(schema, dict):
+                        schema_dict = schema
+                    else:
+                        raise ValueError(f"Unsupported schema type: {type(schema)}")
+
+            # Create system prompt for JSON output
+            system_template = (
+                """You are a helpful assistant that always responds with"""
+                """JSON that matches this schema:
+        ```json
+        {schema}
+        ```
+
+        Follow these rules:
+        1. Your entire response must be valid JSON that adheres to the schema above
+        2. Do not include any explanations, preambles, or text outside the JSON
+        3. Do not include markdown formatting such as ```json or ``` around the JSON
+        4. Make sure all required fields in the schema are included
+        5. Use the correct data types for each field as specified in the schema
+        6. If boolean values are required, use true or false (lowercase without quotes)
+        7. If integer values are required, don't use quotes around them
+
+        Example of a good response format:
+        {{"key1": "value1", "key2": 42, "key3": false}}
+        """
+            )
+            import json
+
+            # Format the schema for the prompt
+            formatted_schema = json.dumps(schema_dict, indent=2)
+            system_content = system_template.format(schema=formatted_schema)
+
+            # Create a function to prepare messages with the system prompt
+            def prepare_messages(input_value: Any) -> List[BaseMessage]:
+                """Prepare messages with system prompt for structured output."""
+                if isinstance(input_value, str):
+                    return [
+                        SystemMessage(content=system_content),
+                        HumanMessage(content=input_value),
+                    ]
+                elif isinstance(input_value, list):
+                    # Check if there's already a system message
+                    has_system = any(
+                        getattr(msg, "type", None) == "system" for msg in input_value
+                    )
+                    if has_system:
+                        # Modify existing system message
+                        messages = input_value.copy()
+                        for i, msg in enumerate(messages):
+                            if getattr(msg, "type", None) == "system":
+                                messages[i] = SystemMessage(
+                                    content=f"{msg.content}\n\n{system_content}"
+                                )
+                                break
+                        return messages
+                    else:
+                        # Add system message at the beginning
+                        return [SystemMessage(content=system_content)] + input_value  # type: ignore
+                else:
+                    # Convert to string and use as human message
+                    return [
+                        SystemMessage(content=system_content),
+                        HumanMessage(content=str(input_value)),
+                    ]
+
+            # Build the chain
+            if include_raw:
+                # Include raw output in the result
+                def process_with_raw(x: Any) -> Dict[str, Any]:
+                    raw_output = llm.invoke(prepare_messages(x))
+                    try:
+                        if isinstance(raw_output.content, str):
+                            parsed = output_parser.parse(raw_output.content)
+                        else:
+                            parsed = raw_output.content
+                        return {
+                            "raw": raw_output,
+                            "parsed": parsed,
+                            "parsing_error": None,
+                        }
+                    except Exception as e:
+                        return {"raw": raw_output, "parsed": None, "parsing_error": e}
+
+                async def aprocess_with_raw(x: Any) -> Dict[str, Any]:
+                    raw_output = await llm.ainvoke(prepare_messages(x))
+                    try:
+                        if isinstance(raw_output.content, str):
+                            parsed = output_parser.parse(raw_output.content)
+                        else:
+                            parsed = raw_output.content
+                        return {
+                            "raw": raw_output,
+                            "parsed": parsed,
+                            "parsing_error": None,
+                        }
+                    except Exception as e:
+                        return {"raw": raw_output, "parsed": None, "parsing_error": e}
+
+                chain = RunnableLambda(process_with_raw, afunc=aprocess_with_raw)  # type: ignore
+            else:
+                # Only return parsed output
+                def process_without_raw(x: Any) -> Any:
+                    raw_output = llm.invoke(prepare_messages(x))
+                    if isinstance(raw_output.content, str):
+                        return output_parser.parse(raw_output.content)
+                    else:
+                        return raw_output.content
+
+                async def aprocess_without_raw(x: Any) -> Any:
+                    raw_output = await llm.ainvoke(prepare_messages(x))
+                    if isinstance(raw_output.content, str):
+                        return output_parser.parse(raw_output.content)
+                    else:
+                        return raw_output.content
+
+                chain = RunnableLambda(process_without_raw, afunc=aprocess_without_raw)  # type: ignore
+
+        return chain
