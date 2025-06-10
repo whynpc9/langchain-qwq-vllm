@@ -384,7 +384,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Convert accumulated tool calls to final format
             tool_calls = list(current_tool_calls.values())
             for tool_call in tool_calls:
-                tool_call["args"] = json.loads(tool_call["args"])
+                tool_call["args"] = json.loads(tool_call["args"])  # type: ignore
 
             last_chunk = chunks[-1]
 
@@ -480,7 +480,7 @@ class ChatQwQ(BaseChatOpenAI):
             # Convert accumulated tool calls to final format
             tool_calls = list(current_tool_calls.values())
             for tool_call in tool_calls:
-                tool_call["args"] = json.loads(tool_call["args"])
+                tool_call["args"] = json.loads(tool_call["args"])  # type: ignore
 
             last_chunk = chunks[-1]
 
@@ -1459,7 +1459,7 @@ class ChatQwen(BaseChatOpenAI):
                     except Exception as e:
                         return {"raw": raw_output, "parsed": None, "parsing_error": e}
 
-                chain = RunnableLambda(process_with_raw, afunc=aprocess_with_raw)
+                chain = RunnableLambda(process_with_raw, afunc=aprocess_with_raw)  # type: ignore
             else:
                 # Only return parsed output
                 def process_without_raw(x: Any) -> Any:
@@ -1476,6 +1476,6 @@ class ChatQwen(BaseChatOpenAI):
                     else:
                         return raw_output.content
 
-                chain = RunnableLambda(process_without_raw, afunc=aprocess_without_raw)
+                chain = RunnableLambda(process_without_raw, afunc=aprocess_without_raw)  # type: ignore
 
         return chain

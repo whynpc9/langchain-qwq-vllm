@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-qwq"
-version = "0.1.4"
+version = "0.1.5"
 description = "An integration package connecting Qwen 3, QwQ and LangChain"
 authors = ["Yiğit Bekir Kaya, PhD <yigit353@gmail.com>"]
 readme = "README.md"
@@ -70,9 +70,6 @@ optional = true
 [tool.poetry.group.codespell]
 optional = true
 
-[tool.poetry.group.test_integration]
-optional = true
-
 [tool.poetry.group.lint]
 optional = true
 
@@ -93,8 +90,6 @@ python-dotenv = "^1.1.0"
 
 [tool.poetry.group.codespell.dependencies]
 codespell = "^2.2.6"
-
-[tool.poetry.group.test_integration.dependencies]
 
 [tool.poetry.group.lint.dependencies]
 ruff = "^0.5"
