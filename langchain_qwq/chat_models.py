@@ -991,6 +991,8 @@ class ChatQwen(BaseChatOpenAI):
         alias="base_url",
     )
 
+    streaming: bool = Field(default=True)
+
     model_config = ConfigDict(populate_by_name=True)
 
     @property
@@ -1022,6 +1024,18 @@ class ChatQwen(BaseChatOpenAI):
         params = super()._default_params
 
         return params
+
+    def _get_request_payload(
+        self,
+        input_: LanguageModelInput,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict:
+        payload = self._filter_disabled_params(
+            **super()._get_request_payload(input_, stop=stop, **kwargs)
+        )
+        return payload
 
     @model_validator(mode="after")
     def validate_environment(self) -> Self:
@@ -1158,7 +1172,6 @@ class ChatQwen(BaseChatOpenAI):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        self.streaming = True
         try:
             return super()._generate(
                 messages, stop=stop, run_manager=run_manager, **kwargs
@@ -1178,7 +1191,6 @@ class ChatQwen(BaseChatOpenAI):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        self.streaming = True
         try:
             return await super()._agenerate(
                 messages, stop=stop, run_manager=run_manager, **kwargs

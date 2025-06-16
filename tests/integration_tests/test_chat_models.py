@@ -40,7 +40,7 @@ class TestChatQwenIntegration(ChatModelIntegrationTests):
     def chat_model_params(self) -> dict:
         # These should be parameters used to initialize your integration for testing
         return {
-            "model": "qwen-plus-latest",
+            "model": "qwen3-235b-a22b",
         }
 
     @property
