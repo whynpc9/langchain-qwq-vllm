@@ -1,4 +1,4 @@
-"""Integration for Qwen QwQ and Qwen3  with thinking chat models."""
+"""Integration for QwQ and most Qwen series chat models"""
 
 from json import JSONDecodeError
 from typing import (
@@ -624,6 +624,7 @@ class ChatQwQ(BaseChatOpenAI):
 
         from langchain_core.messages import HumanMessage, SystemMessage
         from langchain_core.output_parsers import BaseOutputParser
+        from langchain_core.prompt_values import ChatPromptValue
         from langchain_core.runnables import RunnableLambda
         from langchain_core.utils.function_calling import convert_to_json_schema
 
@@ -779,6 +780,9 @@ class ChatQwQ(BaseChatOpenAI):
         # Create a function to prepare messages with the system prompt
         def prepare_messages(input_value: Any) -> List[BaseMessage]:
             """Prepare messages with system prompt for structured output."""
+            if isinstance(input_value, ChatPromptValue):
+                input_value = input_value.to_messages()
+
             if isinstance(input_value, str):
                 return [
                     SystemMessage(content=system_content),
@@ -870,7 +874,7 @@ class ChatQwQ(BaseChatOpenAI):
 
 
 class ChatQwen(BaseChatOpenAI):
-    """Qwen Qwen3 Thinking chat model integration to access models hosted in Qwen Qwen3's API.
+    """Qwen series models integration, specifically strengthen for Qwen3 API access.
 
     Setup:
         Install ``langchain-qwq`` and set environment variable ``DASHSCOPE_API_KEY``.
@@ -882,7 +886,7 @@ class ChatQwen(BaseChatOpenAI):
 
     Key init args — completion params:
         model: str
-            Name of Qwen Qwen3 model to use, e.g. "qwen3-32b".
+            Name of Qwen model to use, e.g. "qwen3-32b".
         temperature: float
             Sampling temperature.
         max_tokens: Optional[int]
@@ -970,6 +974,18 @@ class ChatQwen(BaseChatOpenAI):
             # Batch processing of multiple message sets
             results = await llm.abatch([messages1, messages2])
 
+    Enable Thinking (Qwen3 model only):
+        .. code-block:: python
+
+            # Enable thinking with budget control
+            llm = ChatQwen(
+                model="qwen3-8b",
+                enable_thinking=True,
+                thinking_budget=100  # Set thinking steps limit
+            )
+
+            # Check thinking process in response
+            result = llm.invoke("Explain quantum computing")
     """  # noqa: E501
 
     model_name: str = Field(default="qwen3-32b", alias="model")
@@ -1274,6 +1290,7 @@ class ChatQwen(BaseChatOpenAI):
             PydanticOutputParser,
             PydanticToolsParser,
         )
+        from langchain_core.prompt_values import ChatPromptValue
         from langchain_core.runnables import (
             RunnableLambda,
             RunnableMap,
@@ -1408,6 +1425,8 @@ class ChatQwen(BaseChatOpenAI):
             # Create a function to prepare messages with the system prompt
             def prepare_messages(input_value: Any) -> List[BaseMessage]:
                 """Prepare messages with system prompt for structured output."""
+                if isinstance(input_value, ChatPromptValue):
+                    input_value = input_value.to_messages()
                 if isinstance(input_value, str):
                     return [
                         SystemMessage(content=system_content),

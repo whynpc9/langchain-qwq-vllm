@@ -1,6 +1,17 @@
 # langchain-qwq
 
-This package contains the LangChain integration with QwQ and Qwen3
+This package provides LangChain integration with QwQ models and other Qwen series models from Alibaba Cloud DashScope, with enhancements for Qwen3 models.
+
+## Features
+
+- **QwQ Model Integration**: Full support for QwQ models with reasoning capabilities
+- **Qwen3 Model Integration**: Complete support for Qwen3 series models with hybrid reasoning
+- **Other Qwen Models**: Support for Qwen-Max, Qwen2.5, and other Qwen series models
+- **Vision Models**: Support for Qwen-VL series vision models
+- **Streaming Support**: Both sync and async streaming capabilities
+- **Tool Calling**: Function calling with parallel execution support
+- **Structured Output**: JSON mode and function calling for structured responses
+- **Reasoning Access**: Direct access to model reasoning/thinking content
 
 ## Installation
 
@@ -17,164 +28,300 @@ pip install -U langchain-qwq[codespell]
 pip install -U langchain-qwq[lint]
 pip install -U langchain-qwq[typing]
 ```
-### Environment Variables
 
-And you should configure credentials by setting the following environment variables:
+## Environment Variables
 
-* `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ or Qwen3 models
+Configure credentials by setting the following environment variables:
+
+* `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ or Qwen models (required)
 * `DASHSCOPE_API_BASE`: (Optional) API base URL, defaults to "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
-## Chat Models (QwQ)
+**Note**: For domestic Chinese users, you typically need to set `DASHSCOPE_API_BASE` to the domestic endpoint as langchain-qwq defaults to the international version of Alibaba Cloud.
 
-`ChatQwQ` class exposes chat models from QwQ. The integration works directly with a standard API key without requiring the Tongyi dependency.
+## ChatQwQ
+
+`ChatQwQ` class exposes chat models from QwQ with reasoning capabilities.
+
+### Basic Usage
 
 ```python
 from langchain_qwq import ChatQwQ
 
-llm = ChatQwQ()
-llm.invoke("Sing a ballad of LangChain.")
-```
-
-### Advanced Usage
-
-#### Streaming
-
-```python
-llm = ChatQwQ(model="qwq-plus")
-for chunk in llm.stream("Write a short poem about AI"):
-    print(chunk.content, end="")
-```
-
-#### Async Support
-
-```python
-llm = ChatQwQ(model="qwq-plus")
-response = await llm.ainvoke("What is the capital of France?")
+model = ChatQwQ(model="qwq-32b")
+response = model.invoke("Hello, how are you?")
 print(response.content)
-
-# Streaming
-async for chunk in llm.astream("Tell me about quantum computing"):
-    print(chunk.content, end="")
 ```
 
-#### Access to Reasoning Content
+### Accessing Reasoning Content
+
+QwQ models provide reasoning/thinking content that can be accessed through `additional_kwargs`:
 
 ```python
-response = llm.invoke("Explain how photosynthesis works")
+response = model.invoke("Hello")
 content = response.content
 reasoning = response.additional_kwargs.get("reasoning_content", "")
+print(f"Response: {content}")
+print(f"Reasoning: {reasoning}")
 ```
 
-### Merge Reasoning Content to Content
+### Streaming
+
+#### Sync Streaming
 
 ```python
-from langchain_qwq import ChatQwQ
+model = ChatQwQ(model="qwq-32b")
+
+is_first = True
+is_end = True
+
+for msg in model.stream("Hello"):
+    if hasattr(msg, 'additional_kwargs') and "reasoning_content" in msg.additional_kwargs:
+        if is_first:
+            print("Starting to think...")
+            is_first = False   
+        print(msg.additional_kwargs["reasoning_content"], end="", flush=True)
+    elif hasattr(msg, 'content') and msg.content:
+        if is_end:
+            print("\nThinking ended")
+            is_end = False
+        print(msg.content, end="", flush=True)
+```
+
+#### Async Streaming
+
+```python
+is_first = True
+is_end = True
+
+async for msg in model.astream("Hello"):
+    if hasattr(msg, 'additional_kwargs') and "reasoning_content" in msg.additional_kwargs:
+        if is_first:
+            print("Starting to think...")
+            is_first = False
+        print(msg.additional_kwargs["reasoning_content"], end="", flush=True)
+    elif hasattr(msg, 'content') and msg.content:
+        if is_end:   
+            print("\nThinking ended")
+            is_end = False
+        print(msg.content, end="", flush=True)
+```
+
+### Convenient Reasoning Display
+
+Use utility functions to easily display reasoning content:
+
+```python
 from langchain_qwq.utils import convert_reasoning_to_content
-model = ChatQwQ(
-    model="qwq-plus"
-)
-for chunk in convert_reasoning_to_content(model.stream("hello")):
-    print(chunk)
-```
 
-also support async
+# Sync
+for msg in convert_reasoning_to_content(model.stream("Hello")):
+    print(msg.content, end="", flush=True)
 
-```python
+# Async
 from langchain_qwq.utils import aconvert_reasoning_to_content
-async for chunk in aconvert_reasoning_to_content(model.astream("hello")):
-    print(chunk)
+
+async for msg in aconvert_reasoning_to_content(model.astream("Hello")):
+    print(msg.content, end="", flush=True)
 ```
 
-and you can custom the think tag.
+You can also customize the think tags:
+
 ```python
-from langchain_qwq.utils import convert_reasoning_to_content
-
-async for chunk in aconvert_reasoning_to_content(
-        model.astream("hello"), think_tag=("<Start>", "<End>")
-    ):
-        print(chunk)
-
+async for msg in aconvert_reasoning_to_content(
+    model.astream("Hello"), 
+    think_tag=("<Start>", "<End>")
+):
+    print(msg.content, end="", flush=True)
 ```
 
-#### Tool Calls
+### Tool Calling
+
+#### Basic Tool Usage
 
 ```python
 from langchain_core.tools import tool
 
 @tool
-def get_current_weather(location: str, unit: str = "fahrenheit"):
-    """Get the current weather in a given location"""
-    return f"72 degrees and sunny in {location}"
+def get_weather(city: str) -> str:
+    """Get the weather for a city"""
+    return f"The weather in {city} is sunny."
 
-llm = ChatQwQ(model="qwq-plus")
-llm_with_tools = llm.bind_tools([get_current_weather])
-response = llm_with_tools.invoke("What's the weather in San Francisco?")
+bound_model = model.bind_tools([get_weather])
+response = bound_model.invoke("What's the weather in New York?")
+print(response.tool_calls)
 ```
 
-also you can use `parallel_tool_calls` to enable parallel tool calls
+#### Parallel Tool Calling
+
 ```python
-from langchain_qwq import ChatQwQ
-from langchain_core.tools import tool
+# Enable parallel tool calls
+response = bound_model.invoke(
+    "What's the weather in New York and London?", 
+    parallel_tool_calls=True
+)
+print(response.tool_calls)
+```
 
+### Structured Output
 
-@tool
-async def get_data_in_db(db_name: str) -> str:
-    """get the data from the database"""
-    return f"data from the database {db_name}"
+#### JSON Mode
 
+```python
+from pydantic import BaseModel
 
-model = ChatQwQ(model="qwq-plus").bind_tools([get_data_in_db])
+class User(BaseModel):
+    name: str
+    age: int
 
-print(
-    model.invoke(
-        "please get the data from the database user and animal",
-        extra_body={"parallel_tool_calls": True},
-    )
+struct_model = model.with_structured_output(User, method="json_mode")
+response = struct_model.invoke("Hello, I'm John and I'm 25 years old")
+print(response)  # User(name='John', age=25)
+```
+
+#### Function Calling Mode
+
+```python
+struct_model = model.with_structured_output(User, method="function_calling")
+response = struct_model.invoke("My name is Alice and I'm 30")
+print(response)  # User(name='Alice', age=30)
+```
+
+### Integration with LangChain Agents
+
+```python
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate
+
+agent = create_tool_calling_agent(
+    model,
+    [get_weather],
+    prompt=ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful assistant"),
+        ("placeholder", "{chat_history}"),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}"),
+    ])
 )
 
+agent_executor = AgentExecutor(agent=agent, tools=[get_weather])
+result = agent_executor.invoke({"input": "What's the weather in Beijing?"})
+print(result)
 ```
 
-## Chat Models (Qwen3)
-You can call Qwen3 through ChatQwQ, but we more strongly recommend using ChatQwen to call Qwen3 as it provides better support.
+## ChatQwen
 
-there is some examples code
+`ChatQwen` provides better support for Qwen3 and other Qwen series models, including enhanced parameter support for Qwen3's thinking functionality.
+
+### Basic Usage
 
 ```python
 from langchain_qwq import ChatQwen
 
-
+# Qwen3 model
 model = ChatQwen(model="qwen3-32b")
+response = model.invoke("Hello")
+print(response.content)
 
-for chunk in model.stream("hello!"):
-    print(chunk)
-
+# Access reasoning content (for Qwen3)
+reasoning = response.additional_kwargs.get("reasoning_content", "")
+print(f"Reasoning: {reasoning}")
 ```
- Qwen3 is hybrid reasoning, so you can use enable_thinking to turn off the thinking process.
+
+### Thinking Control (Qwen3 Only)
+
+#### Disable Thinking Mode
+
+For Qwen3 models, thinking is enabled by default for open-source models and disabled for proprietary models. You can control this:
 
 ```python
-from langchain_qwq import ChatQwen
-from dotenv import load_dotenv
-
-
+# Disable thinking for open-source Qwen3 models
 model = ChatQwen(model="qwen3-32b", enable_thinking=False)
-
-for chunk in model.stream("hello!"):
-    print(chunk)
-
+response = model.invoke("Hello")
+print(response.content)  # No reasoning content
 ```
 
-Qwen3 also supports thinking_budget to control the length of the thinking process.
+#### Enable Thinking for Proprietary Models
 
 ```python
-from langchain_qwq import ChatQwen
-from dotenv import load_dotenv
+# Enable thinking for proprietary models
+model = ChatQwen(model="qwen-plus-latest", enable_thinking=True)
+response = model.invoke("Hello")
+reasoning = response.additional_kwargs.get("reasoning_content", "")
+print(f"Reasoning: {reasoning}")
+```
 
-model = ChatQwen(model="qwen3-32b", thinking_budget=100)
+#### Control Thinking Length
 
-for chunk in model.stream("hello!"):
-    print(chunk)
+```python
+# Set thinking budget (max thinking tokens)
+model = ChatQwen(model="qwen3-32b", thinking_budget=20)
+response = model.invoke("Hello")
+reasoning = response.additional_kwargs.get("reasoning_content", "")
+print(f"Limited reasoning: {reasoning}")
+```
 
+### Other Qwen Models
+
+#### Qwen-Max
+
+```python
+model = ChatQwen(model="qwen-max")
+print(model.invoke("Hello").content)
+
+# Tool calling
+bound_model = model.bind_tools([get_weather])
+response = bound_model.invoke("Weather in Shanghai and Beijing?", parallel_tool_calls=True)
+print(response.tool_calls)
+
+# Structured output
+struct_model = model.with_structured_output(User, method="json_mode")
+result = struct_model.invoke("I'm Bob, 28 years old")
+print(result)
+```
+
+#### Qwen2.5-72B
+
+```python
+model = ChatQwen(model="qwen2.5-72b-instruct")
+print(model.invoke("Hello").content)
+
+# All features work the same as other models
+bound_model = model.bind_tools([get_weather])
+struct_model = model.with_structured_output(User, method="json_mode")
+```
+
+### Vision Models
+
+```python
+from langchain_core.messages import HumanMessage
+
+model = ChatQwen(model="qwen-vl-max-latest")
+
+messages = [
+    HumanMessage(content=[
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "https://example.com/image.jpg"
+            },
+        },
+        {"type": "text", "text": "What do you see in this image?"},
+    ])
+]
+
+response = model.invoke(messages)
+print(response.content)
 ```
 
 
-also ChatQwen support features like `with_structured_output`,`function_calling`  as same as ChatQwQ.
+## Model Comparison
+
+| Feature | ChatQwQ | ChatQwen |
+|---------|---------|----------|
+| QwQ Models | ✅ Primary | ✅ Supported |
+| Qwen3 Models | ✅ Basic | ✅ Enhanced |
+| Other Qwen Models | ❌ | ✅ Full Support |
+| Vision Models | ❌ | ✅ Supported |
+| Thinking Control | ❌ | ✅ (Qwen3 only) |
+| Thinking Budget | ❌ | ✅ (Qwen3 only) |
+
