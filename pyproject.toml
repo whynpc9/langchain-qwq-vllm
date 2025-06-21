@@ -79,7 +79,6 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 pytest-socket = "^0.7.0"
 python-dotenv = "^1.1.0"
-ipykernel = "^6.29.5"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.3"
