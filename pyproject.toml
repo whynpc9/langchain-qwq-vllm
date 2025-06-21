@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-qwq"
-version = "0.1.6"
+version = "0.2.0"
 description = "An integration package connecting Qwen 3, QwQ and LangChain"
 authors = ["Yiğit Bekir Kaya, PhD <yigit353@gmail.com>"]
 readme = "README.md"
@@ -25,10 +25,6 @@ codespell = ["codespell"]
 lint = ["ruff"]
 typing = ["mypy"]
 
-[[tool.poetry.source]]
-name = "mirrors"
-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
-priority = "primary"
 
 [tool.mypy]
 disallow_untyped_defs = "True"
