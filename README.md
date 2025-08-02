@@ -1,25 +1,27 @@
 # langchain-qwq
 
-This package provides LangChain integration with QwQ models and other Qwen series models from Alibaba Cloud DashScope, with enhancements for Qwen3 models.
+This package provides seamless integration between LangChain and QwQ models as well as other Qwen series models from Alibaba Cloud BaiLian (via OpenAI-compatible API), with additional optimizations specifically designed for Qwen3 models.
 
 ## Features
 
-- **QwQ Model Integration**: Full support for QwQ models with reasoning capabilities
-- **Qwen3 Model Integration**: Complete support for Qwen3 series models with hybrid reasoning
-- **Other Qwen Models**: Support for Qwen-Max, Qwen2.5, and other Qwen series models
-- **Vision Models**: Support for Qwen-VL series vision models
-- **Streaming Support**: Both sync and async streaming capabilities
-- **Tool Calling**: Function calling with parallel execution support
-- **Structured Output**: JSON mode and function calling for structured responses
-- **Reasoning Access**: Direct access to model reasoning/thinking content
+- **QwQ Model Integration**: Full support for QwQ models with advanced reasoning capabilities  
+- **Qwen3 Model Integration**: Comprehensive support for Qwen3 series models with hybrid reasoning modes  
+- **Other Qwen Models**: Compatibility with Qwen-Max, Qwen2.5, and other Qwen series models  
+- **Vision Models**: Native support for Qwen-VL series vision models  
+- **Streaming Support**: Synchronous and asynchronous streaming capabilities  
+- **Tool Calling**: Function calling with support for parallel execution  
+- **Structured Output**: JSON mode and function calling for structured response generation  
+- **Reasoning Access**: Direct access to internal model reasoning and thinking content  
 
 ## Installation
+
+To install the package:
 
 ```bash
 pip install -U langchain-qwq
 ```
 
-OR if you want to install additional dependencies when you clone the repo:
+If you want to install additional dependencies after cloning the repository:
 
 ```bash
 pip install -U langchain-qwq[docs]
@@ -29,32 +31,33 @@ pip install -U langchain-qwq[lint]
 pip install -U langchain-qwq[typing]
 ```
 
+
 ## Environment Variables
 
-Configure credentials by setting the following environment variables:
+Authentication and configuration are managed through the following environment variables:
 
-* `DASHSCOPE_API_KEY`: Your DashScope API key for accessing QwQ or Qwen models (required)
-* `DASHSCOPE_API_BASE`: (Optional) API base URL, defaults to "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+- `DASHSCOPE_API_KEY`: Your DashScope API key (required)  
+- `DASHSCOPE_API_BASE`: Optional API base URL (defaults to `"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"`)
 
-**Note**: For domestic Chinese users, you typically need to set `DASHSCOPE_API_BASE` to the domestic endpoint as langchain-qwq defaults to the international version of Alibaba Cloud.
+> **Note**: Domestic Chinese users should configure `DASHSCOPE_API_BASE` to the domestic endpoint, as `langchain-qwq` defaults to the international Alibaba Cloud endpoint.
 
 ## ChatQwQ
 
-`ChatQwQ` class exposes chat models from QwQ with reasoning capabilities.
+The ChatQwQ class provides access to QwQ chat models with built-in reasoning capabilities.
 
 ### Basic Usage
 
 ```python
 from langchain_qwq import ChatQwQ
 
-model = ChatQwQ(model="qwq-32b")
+model = ChatQwQ(model="qwq-plus")
 response = model.invoke("Hello, how are you?")
 print(response.content)
 ```
 
 ### Accessing Reasoning Content
 
-QwQ models provide reasoning/thinking content that can be accessed through `additional_kwargs`:
+You can access the internal reasoning content of QwQ models via `additional_kwargs`:
 
 ```python
 response = model.invoke("Hello")
@@ -69,7 +72,7 @@ print(f"Reasoning: {reasoning}")
 #### Sync Streaming
 
 ```python
-model = ChatQwQ(model="qwq-32b")
+model = ChatQwQ(model="qwq-plus")
 
 is_first = True
 is_end = True
@@ -108,7 +111,7 @@ async for msg in model.astream("Hello"):
 
 ### Convenient Reasoning Display
 
-Use utility functions to easily display reasoning content:
+Use built-in utilities to simplify reasoning content display:
 
 ```python
 from langchain_qwq.utils import convert_reasoning_to_content
@@ -124,7 +127,7 @@ async for msg in aconvert_reasoning_to_content(model.astream("Hello")):
     print(msg.content, end="", flush=True)
 ```
 
-You can also customize the think tags:
+Customize think tags:
 
 ```python
 async for msg in aconvert_reasoning_to_content(
@@ -135,8 +138,6 @@ async for msg in aconvert_reasoning_to_content(
 ```
 
 ### Tool Calling
-
-#### Basic Tool Usage
 
 ```python
 from langchain_core.tools import tool
@@ -151,16 +152,6 @@ response = bound_model.invoke("What's the weather in New York?")
 print(response.tool_calls)
 ```
 
-#### Parallel Tool Calling
-
-```python
-# Enable parallel tool calls
-response = bound_model.invoke(
-    "What's the weather in New York and London?", 
-    parallel_tool_calls=True
-)
-print(response.tool_calls)
-```
 
 ### Structured Output
 
@@ -208,9 +199,35 @@ result = agent_executor.invoke({"input": "What's the weather in Beijing?"})
 print(result)
 ```
 
+### QvQ Model Example
+
+```python
+from langchain_core.messages import HumanMessage
+from langchain_qwq.chat_models import ChatQwQ
+
+model = ChatQwQ(model="qvq-max")
+
+messages = [
+    HumanMessage(
+        content=[
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "http://example.com/image.png"
+                },
+            },
+            {"type": "text", "text": "What do you see in this image?"},
+        ]
+    )
+]
+
+response = model.invoke(messages)
+print(response)
+```
+
 ## ChatQwen
 
-`ChatQwen` provides better support for Qwen3 and other Qwen series models, including enhanced parameter support for Qwen3's thinking functionality.
+The ChatQwen class offers enhanced support for Qwen3 and other Qwen series models, including specialized parameters for Qwen3's thinking mode.
 
 ### Basic Usage
 
@@ -218,20 +235,22 @@ print(result)
 from langchain_qwq import ChatQwen
 
 # Qwen3 model
-model = ChatQwen(model="qwen3-32b")
+model = ChatQwen(model="qwen3-235b-a22b-instruct-2507")
 response = model.invoke("Hello")
 print(response.content)
 
-# Access reasoning content (for Qwen3)
+model=ChatQwen(model="qwen3-235b-a22b-thinking-2507")
+response=model.invoke("Hello")
+# Access reasoning content (Qwen3 only)
 reasoning = response.additional_kwargs.get("reasoning_content", "")
 print(f"Reasoning: {reasoning}")
 ```
 
-### Thinking Control (Qwen3 Only)
+### Thinking Control
+
+> **Note**: This feature is only applicable to Qwen3 models. It applies to all Qwen3 models except the latest ones, including but not limited to `Qwen3-235b-a22b-thinking-2507`, `Qwen3-235b-a22b-instruct-2507`, `Qwen3-Coder-480B-a35b-instruct`, and `Qwen3-Coder-plus`.
 
 #### Disable Thinking Mode
-
-For Qwen3 models, thinking is enabled by default for open-source models and disabled for proprietary models. You can control this:
 
 ```python
 # Disable thinking for open-source Qwen3 models
@@ -262,10 +281,10 @@ print(f"Limited reasoning: {reasoning}")
 
 ### Other Qwen Models
 
-#### Qwen-Max
+#### Qwen2.5-Max
 
 ```python
-model = ChatQwen(model="qwen-max")
+model = ChatQwen(model="qwen-max-latest")
 print(model.invoke("Hello").content)
 
 # Tool calling
@@ -316,12 +335,18 @@ print(response.content)
 
 ## Model Comparison
 
-| Feature | ChatQwQ | ChatQwen |
-|---------|---------|----------|
-| QwQ Models | ✅ Primary | ✅ Supported |
-| Qwen3 Models | ✅ Basic | ✅ Enhanced |
-| Other Qwen Models | ❌ | ✅ Full Support |
-| Vision Models | ❌ | ✅ Supported |
-| Thinking Control | ❌ | ✅ (Qwen3 only) |
-| Thinking Budget | ❌ | ✅ (Qwen3 only) |
+| Feature              | ChatQwQ            | ChatQwen           |
+|----------------------|--------------------|---------------------|
+| QwQ Models           | ✅ Primary          | ❌                  |
+| QvQ Models           | ✅ Primary          | ❌                  |
+| Qwen3 Models         | ✅ Basic            | ✅ Enhanced          |
+| Other Qwen Models    | ❌                 | ✅ Full Support      |
+| Vision Models        | ❌                 | ✅ Supported         |
+| Thinking Control     | ❌                 | ✅ (Qwen3 only)      |
+| Thinking Budget      | ❌                 | ✅ (Qwen3 only)      |
 
+### Usage Guidance
+
+- Use ChatQwQ for QwQ and QvQ models.  
+- For Qwen3 series models (available only on Alibaba Cloud BAILIAN platform) with deep thinking mode enabled, all invocations will automatically use streaming.  
+- For other Qwen series models (including self-deployed or third-party deployed Qwen3 models), use ChatQwen, and streaming will not be automatically enabled.  

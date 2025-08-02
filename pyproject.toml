@@ -6,7 +6,10 @@ build-backend = "poetry.core.masonry.api"
 name = "langchain-qwq"
 version = "0.1.6"
 description = "An integration package connecting Qwen 3, QwQ and LangChain"
-authors = ["Yiğit Bekir Kaya, PhD <yigit353@gmail.com>"]
+authors = [
+  "Yiğit Bekir Kaya, PhD <yigit353@gmail.com>",
+  "tiebingice <tiebingice123@outlook.com>",
+]
 readme = "README.md"
 repository = "https://github.com/yigit353/langchain-qwq"
 license = "MIT"
@@ -19,7 +22,7 @@ test = [
   "pytest-socket",
   "pytest-watcher",
   "langchain-tests",
-  "python-dotenv"
+  "python-dotenv",
 ]
 codespell = ["codespell"]
 lint = ["ruff"]
@@ -27,7 +30,7 @@ typing = ["mypy"]
 
 
 [tool.mypy]
-disallow_untyped_defs = "True"
+disallow_untyped_defs = true
 
 [tool.poetry.urls]
 "Source Code" = "https://github.com/yigit353/langchain-qwq/tree/main/langchain_qwq"
@@ -56,7 +59,7 @@ omit = ["tests/*"]
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config --durations=5"
 markers = [
-    "compile: mark placeholder test used to compile integration tests without running them",
+  "compile: mark placeholder test used to compile integration tests without running them",
 ]
 asyncio_mode = "auto"
 
