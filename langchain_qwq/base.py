@@ -9,8 +9,6 @@ from langchain_core.utils import from_env, secret_from_env
 from langchain_openai.chat_models.base import BaseChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from .utils import _check_support_tool_choice
-
 _BM = TypeVar("_BM", bound=BaseModel)
 _DictOrPydanticClass = Union[Dict[str, Any], Type[_BM], Type]
 
@@ -39,8 +37,14 @@ class _BaseChatQwen(BaseChatOpenAI):
         """A map of constructor argument names to secret ids."""
         return {"api_key": "DASHSCOPE_API_KEY"}
 
+    def _is_thinking_model(self) -> bool:
+        return True
+
     def _check_need_stream(self) -> bool:
-        return False
+        return self._is_thinking_model()
+
+    def _support_tool_choice(self) -> bool:
+        return True
 
     @model_validator(mode="after")
     def validate_environment(self) -> Self:
@@ -74,7 +78,7 @@ class _BaseChatQwen(BaseChatOpenAI):
                 **async_specific,
             )
             self.async_client = self.root_async_client.chat.completions
-        self.streaming = self._check_need_stream()
+        self.streaming = self._is_thinking_model()
         return self
 
     def _create_chat_result(
@@ -169,8 +173,8 @@ class _BaseChatQwen(BaseChatOpenAI):
 
             tool_name = convert_to_openai_tool(schema)["function"]["name"]
 
-            tool_choice = _check_support_tool_choice(self.model_name)
-
+            tool_choice = self._support_tool_choice()
+            
             if tool_choice:
                 bind_kwargs = self._filter_disabled_params(
                     parallel_tool_calls=False,

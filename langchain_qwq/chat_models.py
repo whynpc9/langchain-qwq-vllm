@@ -26,7 +26,6 @@ from pydantic import (
 )
 
 from .base import _BaseChatQwen, _DictOrPydantic, _DictOrPydanticClass
-from .utils import enable_streaming_model, model_not_support_json_mode
 
 # Store the original __add__ method
 original_add = AIMessageChunk.__add__
@@ -142,6 +141,9 @@ class ChatQwQ(_BaseChatQwen):
 
     def _check_need_stream(self) -> bool:
         return True
+    
+    def _support_tool_choice(self) -> bool:
+        return False
 
     def _convert_chunk_to_generation_chunk(
         self,
@@ -709,18 +711,38 @@ class ChatQwen(_BaseChatQwen):
 
         return params
 
-    def _check_need_stream(self) -> bool:
-        model = self.model_name
+    def _is_open_source_model(self) -> bool:
+        import re
 
+        pattern = r"\d+b"
+        return bool(re.search(pattern, self.model_name.lower()))
+
+    def _is_thinking_model(self) -> bool:
+        is_open_source_model = self._is_open_source_model()
+        if is_open_source_model:
+            if (
+                self.model_name.startswith("qwen3")
+                and "instruct" not in self.model_name
+                and self.enable_thinking is not False
+            ) or "thinking" in self.model_name:
+                return True
+            return False
+        return self.enable_thinking is True
+
+    def _check_need_stream(self) -> bool:
         api_base = self.api_base or ""
 
-        if "dashscope" in api_base and (
-            (model in enable_streaming_model and self.enable_thinking is not False)
-            or self.enable_thinking
-        ):
+        if "dashscope" in api_base and self._is_thinking_model():
             return True
 
         return False
+
+    def _support_tool_choice(self) -> bool:
+        thinking_model = self._is_thinking_model()
+        if "thinking" not in self.model_name:
+            self.enable_thinking = False
+            return True
+        return not thinking_model
 
     def _convert_chunk_to_generation_chunk(
         self,
@@ -888,10 +910,12 @@ class ChatQwen(_BaseChatQwen):
 
         """  # noqa: E501
 
-        if self.model_name not in model_not_support_json_mode:
-            self.enable_thinking = False
-        else:
-            method = "function_calling"
+        thinking_model = self._is_thinking_model()
+        if thinking_model:
+            if "thinking" not in self.model_name:
+                self.enable_thinking=False
+            else:
+                method="function_calling"
 
         return super().with_structured_output(
             schema=schema,
