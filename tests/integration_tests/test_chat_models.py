@@ -40,7 +40,9 @@ class TestChatQwenIntegration(ChatModelIntegrationTests):
     def chat_model_params(self) -> dict:
         # These should be parameters used to initialize your integration for testing
         return {
-            "model": "qwen3-235b-a22b",
+            "model": "qwen-plus-latest",
+            "enable_thinking": True,
+            "thinking_budget": 100,
         }
 
     @property
@@ -50,3 +52,8 @@ class TestChatQwenIntegration(ChatModelIntegrationTests):
     @property
     def supports_image_tool_message(self) -> bool:
         return False
+
+    @property
+    def supports_json_mode(self) -> bool:
+        """(bool) whether the chat model supports JSON mode."""
+        return True
