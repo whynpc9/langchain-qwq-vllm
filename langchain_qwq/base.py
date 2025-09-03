@@ -1,4 +1,9 @@
-from typing import Any, Dict, List, Literal, Optional, Self, Type, TypeVar, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Type, TypeVar, Union, cast
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import openai
 from langchain_core.language_models import LanguageModelInput
