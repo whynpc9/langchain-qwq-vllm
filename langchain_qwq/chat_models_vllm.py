@@ -3,22 +3,28 @@
 from typing import (
     Any,
     Dict,
-    List,
     Literal,
     Optional,
+    Type,
+    TypeVar,
+    Union,
+    cast,
 )
 
+from langchain_core.language_models import LanguageModelInput
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
-from pydantic import Field
+from langchain_core.utils import from_env
+from pydantic import BaseModel, Field
 
 from .chat_models import ChatQwen
 
-from langchain_core.utils import from_env
-
-from langchain_openai.chat_models.base import BaseChatOpenAI
-
 
 DEFAULT_VLLM_API_BASE = "http://localhost:8000/v1"
+
+_BM = TypeVar("_BM", bound=BaseModel)
+_DictOrPydanticClass = Union[Dict[str, Any], Type[_BM], Type]
+_DictOrPydantic = Union[Dict, _BM]
 
 
 class ChatQwenVllm(ChatQwen):
@@ -29,7 +35,8 @@ class ChatQwenVllm(ChatQwen):
     production environments.
 
     Setup:
-        Install ``langchain-qwq`` and ``vllm``, then configure your VLLM server endpoint.
+        Install ``langchain-qwq`` and ``vllm``, then configure your VLLM 
+        server endpoint.
 
         .. code-block:: bash
 
@@ -39,7 +46,8 @@ class ChatQwenVllm(ChatQwen):
 
     Key init args — completion params:
         model: str
-            Name of Qwen model to use with VLLM, e.g. "qwen/Qwen3-8B-Instruct".
+            Name of Qwen model to use with VLLM, e.g.
+            "qwen/Qwen3-8B-Instruct".
         temperature: float
             Sampling temperature.
         max_tokens: Optional[int]
@@ -71,7 +79,8 @@ class ChatQwenVllm(ChatQwen):
         .. code-block:: python
 
             messages = [
-                ("system", "You are a helpful translator. Translate the user sentence to French."),
+                ("system", "You are a helpful translator. Translate the user " +
+                 "sentence to French."),
                 ("human", "I love programming."),
             ]
             llm.invoke(messages)
@@ -123,7 +132,8 @@ class ChatQwenVllm(ChatQwen):
     @property
     def _default_params(self) -> Dict[str, Any]:
         """Get the default parameters for calling VLLM API."""
-        # Override the base implementation to not include thinking-related params
+        # Override the base implementation to include vllm-specific
+        # thinking-related params
         if self.extra_body is None:
             self.extra_body = {
                 "chat_template_kwargs": {"enable_thinking": self.enable_thinking}
@@ -136,3 +146,142 @@ class ChatQwenVllm(ChatQwen):
         params = super()._default_params
 
         return params
+
+    def with_structured_output(
+        self,
+        schema: Optional[_DictOrPydanticClass] = None,
+        *,
+        method: Literal["json_schema"] = "json_schema",
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
+        """Enable structured output for VLLM backend using guided_json.
+        
+        This method supports only json_schema method and uses vLLM's guided_json
+        parameter instead of modifying system prompts.
+        
+        Args:
+            schema: JSON schema or Pydantic model class for structured output
+            method: Only "json_schema" is supported for vLLM backend
+            include_raw: Whether to include raw response in output
+            **kwargs: Additional arguments (currently unused)
+            
+        Returns:
+            Runnable that outputs structured data according to the schema
+            
+        Raises:
+            ValueError: If method is not "json_schema" or if schema is not provided
+        """
+        from langchain_core.output_parsers import (
+            JsonOutputParser,
+            PydanticOutputParser,
+        )
+        from langchain_core.runnables import RunnableLambda
+        from langchain_core.utils.function_calling import convert_to_json_schema
+        from langchain_openai.chat_models.base import _is_pydantic_class
+
+        if kwargs:
+            raise ValueError(f"Received unsupported arguments {kwargs}")
+
+        # Only support json_schema method for vLLM
+        if method != "json_schema":
+            raise ValueError(
+                f"Method '{method}' is not supported. Only 'json_schema' is "
+                f"supported for vLLM backend."
+            )
+
+        if schema is None:
+            raise ValueError(
+                "Schema must be provided when using vLLM structured output"
+            )
+
+        is_pydantic_schema = _is_pydantic_class(schema)
+
+        # Convert schema to JSON schema format
+        if schema and isinstance(schema, dict):
+            # Ensure the schema dictionary has a 'title' for convert_to_json_schema
+            if "title" not in schema:
+                schema_for_conversion = schema.copy()
+                schema_for_conversion["title"] = "extracted_data"
+            else:
+                schema_for_conversion = schema
+            schema_dict = convert_to_json_schema(schema_for_conversion)
+        elif is_pydantic_schema:
+            schema_dict = convert_to_json_schema(schema)
+        else:
+            schema_dict = schema
+
+        # Use guided_json parameter instead of modifying system prompt
+        extra_body = self.extra_body or {}
+        extra_body["guided_json"] = schema_dict
+        
+        llm = self.bind(
+            extra_body=extra_body,
+            ls_structured_output_format={
+                "kwargs": {"method": method},
+                "schema": schema,
+            },
+        )
+
+        output_parser = (
+            PydanticOutputParser(pydantic_object=schema)  # type: ignore[arg-type]
+            if is_pydantic_schema
+            else JsonOutputParser()
+        )
+
+        def parse_output(input_: AIMessage) -> Any:
+            if isinstance(input_.content, str):
+                return output_parser.parse(input_.content)
+            else:
+                return input_.content
+
+        if include_raw:
+            # Include raw output in the result
+            def process_with_raw(x: Any) -> Dict[str, Any]:
+                raw_output = cast(AIMessage, llm.invoke(x))
+                try:
+                    parsed = parse_output(raw_output)
+                    return {
+                        "raw": raw_output,
+                        "parsed": parsed,
+                        "parsing_error": None,
+                    }
+                except Exception as e:
+                    return {
+                        "raw": raw_output,
+                        "parsed": None,
+                        "parsing_error": e,
+                    }
+
+            async def aprocess_with_raw(x: Any) -> Dict[str, Any]:
+                raw_output = cast(AIMessage, await llm.ainvoke(x))
+                try:
+                    parsed = parse_output(raw_output)
+                    return {
+                        "raw": raw_output,
+                        "parsed": parsed,
+                        "parsing_error": None,
+                    }
+                except Exception as e:
+                    return {
+                        "raw": raw_output,
+                        "parsed": None,
+                        "parsing_error": e,
+                    }
+
+            chain = RunnableLambda(process_with_raw, afunc=aprocess_with_raw)  # type: ignore
+        else:
+            # Only return parsed output
+            def process_without_raw(x: Any) -> Any:
+                raw_output = cast(AIMessage, llm.invoke(x))
+                output = parse_output(raw_output)
+                return output
+
+            async def aprocess_without_raw(x: Any) -> Any:
+                raw_output = cast(AIMessage, await llm.ainvoke(x))
+                output = parse_output(raw_output)
+                return output
+
+            chain = RunnableLambda(process_without_raw, afunc=aprocess_without_raw)  # type: ignore
+
+        return chain
