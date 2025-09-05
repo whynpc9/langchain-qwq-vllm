@@ -1,140 +1,97 @@
-# langchain-qwq
+# langchain-qwq-vllm
 
-This package provides seamless integration between LangChain and QwQ models as well as other Qwen series models from Alibaba Cloud BaiLian (via OpenAI-compatible API), with additional optimizations specifically designed for Qwen3 models.
+A VLLM-optimized integration package for Qwen3 models with LangChain, forked from [@yigit353/langchain-qwq](https://github.com/yigit353/langchain-qwq). This implementation is specifically designed for VLLM deployments of Qwen3 models and explores integration with Deep Agents framework.
 
-## Features
+## ✨ Key Advantages
 
-- **QwQ Model Integration**: Full support for QwQ models with advanced reasoning capabilities  
-- **Qwen3 Model Integration**: Comprehensive support for Qwen3 series models with hybrid reasoning modes  
-- **Other Qwen Models**: Compatibility with Qwen-Max, Qwen2.5, and other Qwen series models  
-- **Vision Models**: Native support for Qwen-VL series vision models  
-- **Streaming Support**: Synchronous and asynchronous streaming capabilities  
-- **Tool Calling**: Function calling with support for parallel execution  
-- **Structured Output**: JSON mode and function calling for structured response generation  
-- **Reasoning Access**: Direct access to internal model reasoning and thinking content  
+This fork provides essential enhancements for VLLM environments:
 
-## Installation
+- **🔧 VLLM Native Support**: Optimized for VLLM backend with native `guided_json` support
+- **🧠 Thinking + Structured Output**: Unique capability to combine reasoning mode with structured output (not available in original BaiLian platform)
+- **🤖 Deep Agents Integration**: Full compatibility with Deep Agents framework for advanced AI workflows
+- **⚡ Enhanced Performance**: Optimized for local/self-hosted VLLM deployments
 
-To install the package:
+## 🚀 Features
+
+- **Streaming Support**: Real-time synchronous and asynchronous streaming
+- **Reasoning Access**: Direct access to model's internal thinking process
+- **Structured Output**: JSON schema-based structured responses using VLLM's `guided_json`
+- **Tool Calling**: Function calling with parallel execution support
+- **Deep Agents Integration**: Seamless integration with Deep Agents framework
+
+
+## 🔧 Environment Setup
+
+Configure your VLLM endpoint:
 
 ```bash
-pip install -U langchain-qwq
+export VLLM_API_BASE="http://localhost:8000/v1"  # Default: http://localhost:8000/v1
 ```
 
-If you want to install additional dependencies after cloning the repository:
+Start your VLLM server:
 
 ```bash
-pip install -U langchain-qwq[docs]
-pip install -U langchain-qwq[test]
-pip install -U langchain-qwq[codespell]
-pip install -U langchain-qwq[lint]
-pip install -U langchain-qwq[typing]
+vllm serve Qwen/Qwen3-32B --port 8000
 ```
 
+## 💡 Basic Usage
 
-## Environment Variables
-
-Authentication and configuration are managed through the following environment variables:
-
-- `DASHSCOPE_API_KEY`: Your DashScope API key (required)  
-- `DASHSCOPE_API_BASE`: Optional API base URL (defaults to `"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"`)
-
-> **Note**: Domestic Chinese users should configure `DASHSCOPE_API_BASE` to the domestic endpoint, as `langchain-qwq` defaults to the international Alibaba Cloud endpoint.
-
-## ChatQwQ
-
-The ChatQwQ class provides access to QwQ chat models with built-in reasoning capabilities.
-
-### Basic Usage
+### ChatQwenVllm
 
 ```python
-from langchain_qwq import ChatQwQ
+from langchain_qwq import ChatQwenVllm
 
-model = ChatQwQ(model="qwq-plus")
-response = model.invoke("Hello, how are you?")
-print(response.content)
-```
+# Initialize the model
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    temperature=0.1,
+    max_tokens=2000,
+    enable_thinking=True,  # Enable reasoning mode
+)
 
-### Accessing Reasoning Content
+# Basic interaction
+response = llm.invoke("Explain quantum computing")
+print(f"Response: {response.content}")
 
-You can access the internal reasoning content of QwQ models via `additional_kwargs`:
-
-```python
-response = model.invoke("Hello")
-content = response.content
+# Access reasoning process
 reasoning = response.additional_kwargs.get("reasoning_content", "")
-print(f"Response: {content}")
-print(f"Reasoning: {reasoning}")
+print(f"Model's thinking: {reasoning}")
 ```
 
-### Streaming
-
-#### Sync Streaming
+### Streaming with Reasoning
 
 ```python
-model = ChatQwQ(model="qwq-plus")
-
-is_first = True
-is_end = True
-
-for msg in model.stream("Hello"):
-    if hasattr(msg, 'additional_kwargs') and "reasoning_content" in msg.additional_kwargs:
-        if is_first:
-            print("Starting to think...")
-            is_first = False   
-        print(msg.additional_kwargs["reasoning_content"], end="", flush=True)
-    elif hasattr(msg, 'content') and msg.content:
-        if is_end:
-            print("\nThinking ended")
-            is_end = False
-        print(msg.content, end="", flush=True)
+# Stream with thinking process
+for chunk in llm.stream("Solve this math problem: 15 * 23 + 7"):
+    if hasattr(chunk, 'additional_kwargs') and "reasoning_content" in chunk.additional_kwargs:
+        print(f"🤔 {chunk.additional_kwargs['reasoning_content']}", end="")
+    elif hasattr(chunk, 'content') and chunk.content:
+        print(f"💬 {chunk.content}", end="")
 ```
 
-#### Async Streaming
+### Structured Output with Reasoning
+
+**🌟 This is the key advantage: combining thinking mode with structured output!**
 
 ```python
-is_first = True
-is_end = True
+from pydantic import BaseModel, Field
+from typing import List
 
-async for msg in model.astream("Hello"):
-    if hasattr(msg, 'additional_kwargs') and "reasoning_content" in msg.additional_kwargs:
-        if is_first:
-            print("Starting to think...")
-            is_first = False
-        print(msg.additional_kwargs["reasoning_content"], end="", flush=True)
-    elif hasattr(msg, 'content') and msg.content:
-        if is_end:   
-            print("\nThinking ended")
-            is_end = False
-        print(msg.content, end="", flush=True)
-```
+class AnalysisResult(BaseModel):
+    summary: str = Field(description="Brief analysis summary")
+    key_points: List[str] = Field(description="Key findings")
+    confidence: float = Field(description="Confidence score 0-1")
 
-### Convenient Reasoning Display
+# Enable both thinking AND structured output
+structured_llm = llm.with_structured_output(
+    schema=AnalysisResult,
+    method="json_schema"
+)
 
-Use built-in utilities to simplify reasoning content display:
-
-```python
-from langchain_qwq.utils import convert_reasoning_to_content
-
-# Sync
-for msg in convert_reasoning_to_content(model.stream("Hello")):
-    print(msg.content, end="", flush=True)
-
-# Async
-from langchain_qwq.utils import aconvert_reasoning_to_content
-
-async for msg in aconvert_reasoning_to_content(model.astream("Hello")):
-    print(msg.content, end="", flush=True)
-```
-
-Customize think tags:
-
-```python
-async for msg in aconvert_reasoning_to_content(
-    model.astream("Hello"), 
-    think_tag=("<Start>", "<End>")
-):
-    print(msg.content, end="", flush=True)
+result = structured_llm.invoke("Analyze the benefits of renewable energy")
+print(f"Summary: {result.summary}")
+print(f"Key Points: {result.key_points}")
+print(f"Confidence: {result.confidence}")
 ```
 
 ### Tool Calling
@@ -143,210 +100,208 @@ async for msg in aconvert_reasoning_to_content(
 from langchain_core.tools import tool
 
 @tool
-def get_weather(city: str) -> str:
-    """Get the weather for a city"""
-    return f"The weather in {city} is sunny."
+def calculate(expression: str) -> str:
+    """Safely evaluate mathematical expressions."""
+    try:
+        result = eval(expression)
+        return f"{expression} = {result}"
+    except:
+        return "Invalid expression"
 
-bound_model = model.bind_tools([get_weather])
-response = bound_model.invoke("What's the weather in New York?")
-print(response.tool_calls)
+# Bind tools to the model
+llm_with_tools = llm.bind_tools([calculate])
+
+response = llm_with_tools.invoke("What's 25 * 4 + 12?")
+print(response.content)
 ```
 
-
-### Structured Output
-
-#### JSON Mode
+### Combined: Tools + Structured Output + Reasoning
 
 ```python
-from pydantic import BaseModel
+class CalculationReport(BaseModel):
+    problem: str = Field(description="Original math problem")
+    steps: List[str] = Field(description="Solution steps")
+    answer: float = Field(description="Final numerical answer")
+    verification: str = Field(description="Verification of the result")
 
-class User(BaseModel):
-    name: str
-    age: int
-
-struct_model = model.with_structured_output(User, method="json_mode")
-response = struct_model.invoke("Hello, I'm John and I'm 25 years old")
-print(response)  # User(name='John', age=25)
-```
-
-#### Function Calling Mode
-
-```python
-struct_model = model.with_structured_output(User, method="function_calling")
-response = struct_model.invoke("My name is Alice and I'm 30")
-print(response)  # User(name='Alice', age=30)
-```
-
-### Integration with LangChain Agents
-
-```python
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-
-agent = create_tool_calling_agent(
-    model,
-    [get_weather],
-    prompt=ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful assistant"),
-        ("placeholder", "{chat_history}"),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
+# This powerful combination is unique to our VLLM implementation
+advanced_llm = llm.bind_tools([calculate]).with_structured_output(
+    schema=CalculationReport,
+    method="json_schema"
 )
 
-agent_executor = AgentExecutor(agent=agent, tools=[get_weather])
-result = agent_executor.invoke({"input": "What's the weather in Beijing?"})
-print(result)
+result = advanced_llm.invoke("Solve step by step: (15 + 8) * 3 - 7")
+print(f"Problem: {result.problem}")
+print(f"Steps: {result.steps}")
+print(f"Answer: {result.answer}")
 ```
 
-### QvQ Model Example
+## 🤖 Deep Agents Integration
 
 ```python
-from langchain_core.messages import HumanMessage
-from langchain_qwq.chat_models import ChatQwQ
+from deepagents import create_deep_agent
 
-model = ChatQwQ(model="qvq-max")
+# Create a research agent with web search capabilities
+def web_search(query: str) -> str:
+    """Search the web for information."""
+    # Implementation depends on your search provider
+    return f"Search results for: {query}"
 
-messages = [
-    HumanMessage(
-        content=[
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": "http://example.com/image.png"
-                },
-            },
-            {"type": "text", "text": "What do you see in this image?"},
-        ]
-    )
-]
+agent = create_deep_agent(
+    tools=[web_search],
+    instructions="You are a research assistant with web access.",
+    model=llm,  # Use our ChatQwenVllm model
+)
 
-response = model.invoke(messages)
-print(response)
-```
-
-## ChatQwen
-
-The ChatQwen class offers enhanced support for Qwen3 and other Qwen series models, including specialized parameters for Qwen3's thinking mode.
-
-### Basic Usage
-
-```python
-from langchain_qwq import ChatQwen
-
-# Qwen3 model
-model = ChatQwen(model="qwen3-235b-a22b-instruct-2507")
-response = model.invoke("Hello")
-print(response.content)
-
-model=ChatQwen(model="qwen3-235b-a22b-thinking-2507")
-response=model.invoke("Hello")
-# Access reasoning content (Qwen3 only)
-reasoning = response.additional_kwargs.get("reasoning_content", "")
-print(f"Reasoning: {reasoning}")
-```
-
-### Thinking Control
-
-> **Note**: This feature is only applicable to Qwen3 models. It applies to all Qwen3 models except the latest ones, including but not limited to `Qwen3-235b-a22b-thinking-2507`, `Qwen3-235b-a22b-instruct-2507`, `Qwen3-Coder-480B-a35b-instruct`, and `Qwen3-Coder-plus`.
-
-#### Disable Thinking Mode
-
-```python
-# Disable thinking for open-source Qwen3 models
-model = ChatQwen(model="qwen3-32b", enable_thinking=False)
-response = model.invoke("Hello")
-print(response.content)  # No reasoning content
-```
-
-#### Enable Thinking for Proprietary Models
-
-```python
-# Enable thinking for proprietary models
-model = ChatQwen(model="qwen-plus-latest", enable_thinking=True)
-response = model.invoke("Hello")
-reasoning = response.additional_kwargs.get("reasoning_content", "")
-print(f"Reasoning: {reasoning}")
-```
-
-#### Control Thinking Length
-
-```python
-# Set thinking budget (max thinking tokens)
-model = ChatQwen(model="qwen3-32b", thinking_budget=20)
-response = model.invoke("Hello")
-reasoning = response.additional_kwargs.get("reasoning_content", "")
-print(f"Limited reasoning: {reasoning}")
-```
-
-### Other Qwen Models
-
-#### Qwen2.5-Max
-
-```python
-model = ChatQwen(model="qwen-max-latest")
-print(model.invoke("Hello").content)
-
-# Tool calling
-bound_model = model.bind_tools([get_weather])
-response = bound_model.invoke("Weather in Shanghai and Beijing?", parallel_tool_calls=True)
-print(response.tool_calls)
-
-# Structured output
-struct_model = model.with_structured_output(User, method="json_mode")
-result = struct_model.invoke("I'm Bob, 28 years old")
-print(result)
-```
-
-#### Qwen2.5-72B
-
-```python
-model = ChatQwen(model="qwen2.5-72b-instruct")
-print(model.invoke("Hello").content)
-
-# All features work the same as other models
-bound_model = model.bind_tools([get_weather])
-struct_model = model.with_structured_output(User, method="json_mode")
-```
-
-### Vision Models
-
-```python
-from langchain_core.messages import HumanMessage
-
-model = ChatQwen(model="qwen-vl-max-latest")
-
-messages = [
-    HumanMessage(content=[
+# The agent can now use reasoning + tools + structured output
+result = agent.invoke({
+    "messages": [
         {
-            "type": "image_url",
-            "image_url": {
-                "url": "https://example.com/image.jpg"
-            },
-        },
-        {"type": "text", "text": "What do you see in this image?"},
-    ])
-]
-
-response = model.invoke(messages)
-print(response.content)
+            "role": "user",
+            "content": "Research the latest developments in quantum computing"
+        }
+    ]
+})
 ```
 
+## 📊 Advanced Examples
 
-## Model Comparison
+### Multi-step Analysis with File Operations
 
-| Feature              | ChatQwQ            | ChatQwen           |
-|----------------------|--------------------|---------------------|
-| QwQ Models           | ✅ Primary          | ❌                  |
-| QvQ Models           | ✅ Primary          | ❌                  |
-| Qwen3 Models         | ✅ Basic            | ✅ Enhanced          |
-| Other Qwen Models    | ❌                 | ✅ Full Support      |
-| Vision Models        | ❌                 | ✅ Supported         |
-| Thinking Control     | ❌                 | ✅ (Qwen3 only)      |
-| Thinking Budget      | ❌                 | ✅ (Qwen3 only)      |
+```python
+from deepagents import create_deep_agent
 
-### Usage Guidance
+def analyze_data(data_description: str) -> str:
+    """Analyze data and provide insights."""
+    return "Statistical analysis completed with key findings..."
 
-- Use ChatQwQ for QwQ and QvQ models.  
-- For Qwen3 series models (available only on Alibaba Cloud BAILIAN platform) with deep thinking mode enabled, all invocations will automatically use streaming.  
-- For other Qwen series models (including self-deployed or third-party deployed Qwen3 models), use ChatQwen, and streaming will not be automatically enabled.  
+# Agent with file system access
+agent = create_deep_agent(
+    tools=[analyze_data],
+    instructions="You are a data analyst with file access.",
+    model=llm,
+    builtin_tools=["write_file", "read_file", "ls"],  # File system tools
+)
+
+result = agent.invoke({
+    "messages": [
+        {
+            "role": "user",
+            "content": "Analyze the sales data and create a report"
+        }
+    ],
+    "files": {
+        "sales_data.csv": "Q1,100000\nQ2,120000\nQ3,135000"
+    }
+})
+```
+
+### Async Operations
+
+```python
+import asyncio
+
+async def process_requests():
+    """Process multiple requests asynchronously."""
+    
+    tasks = [
+        llm.ainvoke("Analyze renewable energy trends"),
+        llm.ainvoke("Explain machine learning basics"),
+        llm.ainvoke("Describe quantum computing applications")
+    ]
+    
+    responses = await asyncio.gather(*tasks)
+    
+    for i, response in enumerate(responses, 1):
+        print(f"Response {i}: {response.content[:100]}...")
+
+# Run async processing
+asyncio.run(process_requests())
+```
+
+## 🔄 Comparison with Original
+
+| Feature | Original (BaiLian) | Our VLLM Fork |
+|---------|-------------------|---------------|
+| Thinking Mode | ✅ | ✅ |
+| Structured Output | ✅ | ✅ |
+| **Thinking + Structured** | ❌ | ✅ |
+| Tool Calling | ✅ | ✅ |
+| Deep Agents | ⚠️ Limited | ✅ Full Support |
+| Local Deployment | ❌ | ✅ |
+| Custom VLLM Optimizations | ❌ | ✅ |
+
+## 📁 Project Structure
+
+```
+langchain-qwq-vllm/
+├── langchain_qwq/
+│   ├── chat_models.py          # Original ChatQwen classes
+│   ├── chat_models_vllm.py     # Our VLLM-optimized ChatQwenVllm
+│   └── utils.py                # Utility functions
+├── tests/
+│   ├── unit_tests/             # Unit tests
+│   └── integration_tests/      # Deep Agents integration tests
+├── docs/
+│   ├── tool_calling_example.py  # Tool calling examples
+│   └── vllm_structured_output_example.py  # Structured output examples
+└── examples/
+    └── tool_with_structured_output.py  # Combined examples
+```
+
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+# Unit tests
+pytest tests/unit_tests/
+
+# Integration tests (requires VLLM server)
+pytest tests/integration_tests/
+
+# Specific Deep Agents tests
+pytest tests/integration_tests/test_chat_models_with_deepagents.py
+```
+
+## 🚀 Getting Started
+
+1. **Start VLLM server**:
+   ```bash
+   vllm serve Qwen/Qwen3-32B --port 8000
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install langchain-qwq deepagents
+   ```
+
+3. **Run examples**:
+   ```bash
+   python docs/tool_calling_example.py
+   python docs/vllm_structured_output_example.py
+   ```
+
+## 🤝 Contributing
+
+This project focuses on VLLM optimization and Deep Agents integration. Contributions are welcome for:
+
+- VLLM performance optimizations
+- Deep Agents workflow examples
+- Advanced reasoning + structured output use cases
+- Documentation improvements
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Original Project**: [@yigit353/langchain-qwq](https://github.com/yigit353/langchain-qwq)
+- **Development Tool**: This project was entirely developed using [Cursor](https://cursor.so/) AI-powered code editor
+- **Framework**: Built on [LangChain](https://github.com/langchain-ai/langchain) and [VLLM](https://github.com/vllm-project/vllm)
+- **AI Framework**: Integrated with [Deep Agents](https://github.com/multimodal-art-projection/deepagents)
+
+---
+
+**✨ Created with [Cursor](https://cursor.so/) - The AI-powered code editor**
