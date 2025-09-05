@@ -116,6 +116,34 @@ class ChatQwenVllm(ChatQwen):
 
     enable_thinking: Optional[bool] = Field(default=True)
 
+    def __getattribute__(self, name: str) -> Any:
+        """Override to handle with_structured_output calls from RunnableBinding."""
+        # Get the actual attribute first
+        attr = super().__getattribute__(name)
+        
+        # Special handling for with_structured_output when called from RunnableBinding
+        if name == "with_structured_output":
+            import inspect
+            
+            # Check if we're being called from a RunnableBinding's __getattr__
+            frame = inspect.currentframe()
+            try:
+                # Look for a RunnableBinding in the call stack
+                calling_frame = frame.f_back
+                if calling_frame and calling_frame.f_code.co_name == "__getattr__":
+                    frame_locals = calling_frame.f_locals
+                    if ('self' in frame_locals and 
+                        hasattr(frame_locals['self'], 'kwargs') and
+                        hasattr(frame_locals['self'], 'bound')):
+                        binding = frame_locals['self']
+                        if binding.bound is self and binding.kwargs:
+                            # Store the binding kwargs temporarily
+                            self._temp_binding_kwargs = binding.kwargs.copy()
+            finally:
+                del frame
+        
+        return attr
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -218,21 +246,12 @@ class ChatQwenVllm(ChatQwen):
         # Start with existing kwargs (like tools) from RunnableBinding
         bind_kwargs = {}
         
-        # CRITICAL: For vLLM integration, we need to ensure tools are preserved
-        # The challenge is that when called on a RunnableBinding, this method
-        # executes on the bound ChatQwenVllm object, losing access to the binding kwargs.
-        # Solution: Pass binding kwargs via kwargs parameter from RunnableBinding.
-        
-        if hasattr(self, 'kwargs') and self.kwargs:
-            # Direct call on RunnableBinding
-            bind_kwargs.update(self.kwargs)
-        elif '_bound_kwargs' in kwargs:
-            # Binding kwargs passed explicitly (our solution)
-            bind_kwargs.update(kwargs.pop('_bound_kwargs'))
-        
-        # If no binding kwargs found, this might be a delegated call
-        # For now, we proceed with empty bind_kwargs, but the real fix
-        # would be at the RunnableBinding level
+        # Handle the case where this method is called via RunnableBinding.__getattr__
+        # In this case, we need to get the binding kwargs from the calling context.
+        # We use a temporary attribute to store binding kwargs during the call.
+        if hasattr(self, '_temp_binding_kwargs'):
+            bind_kwargs.update(self._temp_binding_kwargs)
+            delattr(self, '_temp_binding_kwargs')
         
         # Merge existing extra_body with guided_json
         if 'extra_body' in bind_kwargs:

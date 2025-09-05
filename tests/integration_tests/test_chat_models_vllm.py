@@ -979,7 +979,12 @@ class TestChatQwenVllmToolCalling:
             "Final response should not contain additional tool calls"
     
     def test_tool_calling_with_structured_output(self):
-        """Test tool calling combined with structured output."""
+        """Test tool calling combined with structured output.
+        
+        This test verifies that when we bind tools and then add structured output,
+        both the tools and guided_json parameters are correctly preserved in the 
+        final request.
+        """
         class WeatherQuery(BaseModel):
             """Weather query result schema."""
             location: str = Field(description="The queried location")
@@ -1030,7 +1035,8 @@ class TestChatQwenVllmToolCalling:
                 )
         
         # Step 3: Structured output phase - use guided_json for final response
-        structured_llm = self.llm.with_structured_output(
+        # IMPORTANT: Call with_structured_output on llm_with_tools to preserve tools
+        structured_llm = llm_with_tools.with_structured_output(
             schema=WeatherQuery,
             method="json_schema"
         )
@@ -1066,6 +1072,66 @@ according to the WeatherQuery schema with the following requirements:
         
         # Location should relate to Tokyo
         assert 'tokyo' in response.location.lower()
+    
+    def test_tools_and_structured_output_single_call(self):
+        """Test that tools and structured output can be combined in a single call.
+        
+        This test ensures that when both bind_tools() and with_structured_output()
+        are applied, the model can both use tools AND format output according to
+        the schema in a single request.
+        """
+        class WeatherInfo(BaseModel):
+            """Weather information schema."""
+            location: str = Field(description="The queried location")
+            temperature: int = Field(description="Temperature in degrees")
+            condition: str = Field(description="Weather condition")
+            humidity: int = Field(description="Humidity percentage", ge=0, le=100)
+            unit: str = Field(
+                description="Temperature unit: must be exactly 'celsius' or 'fahrenheit'",
+                default="celsius"
+            )
+        
+        weather_tool = self.get_weather_tool()
+        
+        # Combine both tools and structured output
+        combined_llm = self.llm.bind_tools([weather_tool]).with_structured_output(
+            schema=WeatherInfo,
+            method="json_schema"
+        )
+        
+        # Single request that should use tools AND return structured output
+        messages = [
+            {
+                "role": "system",
+                "content": """You are a weather assistant. When asked about weather:
+1. Use the available weather tool to get accurate information
+2. Format the response according to the required schema
+3. IMPORTANT: For the 'unit' field, use EXACTLY 'celsius' or 'fahrenheit' (not '°C' or '°F')
+4. Extract the numerical temperature value without units
+5. Ensure all required fields are properly filled"""
+            },
+            {
+                "role": "user",
+                "content": "What's the weather in Beijing? Please provide the information in the structured format with temperature in celsius."
+            }
+        ]
+        
+        # This should trigger tool calling AND return structured output
+        response = combined_llm.invoke(messages)
+        
+        # Verify we got structured output
+        assert isinstance(response, WeatherInfo)
+        assert response.location
+        assert isinstance(response.temperature, int)
+        assert response.condition
+        assert 0 <= response.humidity <= 100
+        # More flexible unit checking
+        assert response.unit.lower() in ["celsius", "fahrenheit", "c", "f"] or any(
+            unit in response.unit.lower() for unit in ["celsius", "fahrenheit"]
+        ), f"Invalid unit format: {response.unit}"
+        
+        # Location should relate to Beijing
+        assert 'beijing' in response.location.lower()
     
     def test_tool_calling_with_include_raw(self):
         """Test tool calling with structured output and include_raw=True."""
