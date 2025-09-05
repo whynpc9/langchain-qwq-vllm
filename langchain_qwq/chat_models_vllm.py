@@ -215,13 +215,41 @@ class ChatQwenVllm(ChatQwen):
         extra_body = self.extra_body or {}
         extra_body["guided_json"] = schema_dict
         
-        llm = self.bind(
-            extra_body=extra_body,
-            ls_structured_output_format={
+        # Start with existing kwargs (like tools) from RunnableBinding
+        bind_kwargs = {}
+        
+        # CRITICAL: For vLLM integration, we need to ensure tools are preserved
+        # The challenge is that when called on a RunnableBinding, this method
+        # executes on the bound ChatQwenVllm object, losing access to the binding kwargs.
+        # Solution: Pass binding kwargs via kwargs parameter from RunnableBinding.
+        
+        if hasattr(self, 'kwargs') and self.kwargs:
+            # Direct call on RunnableBinding
+            bind_kwargs.update(self.kwargs)
+        elif '_bound_kwargs' in kwargs:
+            # Binding kwargs passed explicitly (our solution)
+            bind_kwargs.update(kwargs.pop('_bound_kwargs'))
+        
+        # If no binding kwargs found, this might be a delegated call
+        # For now, we proceed with empty bind_kwargs, but the real fix
+        # would be at the RunnableBinding level
+        
+        # Merge existing extra_body with guided_json
+        if 'extra_body' in bind_kwargs:
+            existing_extra_body = bind_kwargs.get('extra_body', {}) or {}
+            # Merge and ensure guided_json takes precedence
+            extra_body = {**existing_extra_body, **extra_body}
+        
+        # Set final bind arguments
+        bind_kwargs.update({
+            "extra_body": extra_body,
+            "ls_structured_output_format": {
                 "kwargs": {"method": method},
                 "schema": schema,
             },
-        )
+        })
+        
+        llm = self.bind(**bind_kwargs)
 
         output_parser = (
             PydanticOutputParser(pydantic_object=schema)  # type: ignore[arg-type]

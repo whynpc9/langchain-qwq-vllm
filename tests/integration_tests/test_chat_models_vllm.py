@@ -829,56 +829,154 @@ class TestChatQwenVllmToolCalling:
         
         return get_weather
     
-    def test_tool_calling_text_output(self):
-        """Test tool calling with regular text output."""
-        weather_tool = self.get_weather_tool()
-        llm_with_tools = self.llm.bind_tools([weather_tool])
+    def execute_tool_calls(self, response, weather_tool):
+        """Execute tool calls and return tool messages."""
+        from langchain_core.messages import ToolMessage
         
-        response = llm_with_tools.invoke("What's the weather like in Beijing today?")
-        
-        # Check if the response contains tool calls or mentions the weather
+        tool_messages = []
         if hasattr(response, 'tool_calls') and response.tool_calls:
-            # Tool was called successfully
-            assert len(response.tool_calls) > 0
-            tool_call = response.tool_calls[0]
-            assert tool_call['name'] == 'get_weather'
-            assert 'location' in tool_call['args']
-            # Check that Beijing was extracted correctly
-            assert 'beijing' in tool_call['args']['location'].lower()
-        else:
-            # Model responded with text, should at least mention weather or location
-            assert response.content is not None
-            content_lower = response.content.lower()
-            assert any(word in content_lower for word in ['weather', 'beijing', 'temperature', 'condition'])
-    
-    def test_tool_calling_multiple_locations(self):
-        """Test tool calling with multiple location queries."""
-        weather_tool = self.get_weather_tool()
-        llm_with_tools = self.llm.bind_tools([weather_tool])
-        
-        response = llm_with_tools.invoke(
-            "Can you tell me the weather in Shanghai and Guangzhou?"
-        )
-        
-        # Check response
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            # Should ideally have multiple tool calls or at least one
-            assert len(response.tool_calls) >= 1
-            
-            # Check that at least one of the cities is mentioned
-            cities_mentioned = []
             for tool_call in response.tool_calls:
                 if tool_call['name'] == 'get_weather':
-                    location = tool_call['args'].get('location', '').lower()
-                    cities_mentioned.append(location)
-            
-            # At least one city should be mentioned
-            assert any('shanghai' in city or 'guangzhou' in city for city in cities_mentioned)
-        else:
-            # Text response should mention the cities
-            assert response.content is not None
-            content_lower = response.content.lower()
-            assert any(city in content_lower for city in ['shanghai', 'guangzhou'])
+                    # Execute the weather tool with the provided arguments
+                    try:
+                        tool_result = weather_tool.invoke(tool_call['args'])
+                        tool_messages.append(
+                            ToolMessage(
+                                content=tool_result,
+                                tool_call_id=tool_call['id']
+                            )
+                        )
+                    except Exception as e:
+                        tool_messages.append(
+                            ToolMessage(
+                                content=f"Error executing tool: {str(e)}",
+                                tool_call_id=tool_call['id']
+                            )
+                        )
+        return tool_messages
+    
+    def test_tool_calling_text_output(self):
+        """Test complete tool calling flow with text output."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        
+        weather_tool = self.get_weather_tool()
+        llm_with_tools = self.llm.bind_tools([weather_tool])
+        
+        # Initial user message
+        initial_message = HumanMessage(content="What's the weather like in Beijing today?")
+        
+        # First round: Get tool calls from the model
+        first_response = llm_with_tools.invoke([initial_message])
+        
+        # Verify initial response has tool calls
+        assert hasattr(first_response, 'tool_calls') and first_response.tool_calls, \
+            "Model should generate tool calls for weather query"
+        
+        # Verify tool call details
+        tool_call = first_response.tool_calls[0]
+        assert tool_call['name'] == 'get_weather'
+        assert 'location' in tool_call['args']
+        assert 'beijing' in tool_call['args']['location'].lower()
+        
+        # Execute the tool calls
+        tool_messages = self.execute_tool_calls(first_response, weather_tool)
+        assert len(tool_messages) > 0, "Should have executed at least one tool call"
+        
+        # Prepare message history for final response
+        message_history = [
+            initial_message,
+            first_response,
+            *tool_messages
+        ]
+        
+        # Second round: Get final response with tool results
+        final_response = llm_with_tools.invoke(message_history)
+        
+        # Verify final response
+        assert isinstance(final_response, AIMessage)
+        assert final_response.content is not None
+        assert len(final_response.content) > 0
+        
+        # Final response should mention weather information
+        content_lower = final_response.content.lower()
+        weather_keywords = ['weather', 'temperature', 'sunny', 'condition', 'humidity', 'beijing']
+        assert any(keyword in content_lower for keyword in weather_keywords), \
+            f"Final response should contain weather information. Got: {final_response.content}"
+        
+        # Should not have additional tool calls in final response
+        assert not (hasattr(final_response, 'tool_calls') and final_response.tool_calls), \
+            "Final response should not contain additional tool calls"
+    
+    def test_tool_calling_multiple_locations(self):
+        """Test complete tool calling flow with multiple location queries."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        
+        weather_tool = self.get_weather_tool()
+        llm_with_tools = self.llm.bind_tools([weather_tool])
+        
+        # Initial user message asking for multiple cities
+        initial_message = HumanMessage(
+            content="Can you tell me the weather in Shanghai and Guangzhou?"
+        )
+        
+        # First round: Get tool calls from the model
+        first_response = llm_with_tools.invoke([initial_message])
+        
+        # Verify initial response has tool calls
+        assert hasattr(first_response, 'tool_calls') and first_response.tool_calls, \
+            "Model should generate tool calls for multiple weather queries"
+        
+        # Verify tool call details
+        assert len(first_response.tool_calls) >= 1, "Should have at least one tool call"
+        
+        # Check that the cities are properly extracted
+        cities_mentioned = []
+        for tool_call in first_response.tool_calls:
+            assert tool_call['name'] == 'get_weather'
+            assert 'location' in tool_call['args']
+            location = tool_call['args']['location'].lower()
+            cities_mentioned.append(location)
+        
+        # At least one of the requested cities should be mentioned
+        assert any('shanghai' in city or 'guangzhou' in city for city in cities_mentioned), \
+            f"Tool calls should mention Shanghai or Guangzhou. Got cities: {cities_mentioned}"
+        
+        # Execute all tool calls
+        tool_messages = self.execute_tool_calls(first_response, weather_tool)
+        assert len(tool_messages) > 0, "Should have executed at least one tool call"
+        assert len(tool_messages) == len(first_response.tool_calls), \
+            "Should execute all tool calls"
+        
+        # Prepare message history for final response
+        message_history = [
+            initial_message,
+            first_response,
+            *tool_messages
+        ]
+        
+        # Second round: Get final response with all tool results
+        final_response = llm_with_tools.invoke(message_history)
+        
+        # Verify final response
+        assert isinstance(final_response, AIMessage)
+        assert final_response.content is not None
+        assert len(final_response.content) > 0
+        
+        # Final response should mention both cities and weather information
+        content_lower = final_response.content.lower()
+        
+        # Should mention weather-related terms
+        weather_keywords = ['weather', 'temperature', 'condition', 'humidity']
+        assert any(keyword in content_lower for keyword in weather_keywords), \
+            f"Final response should contain weather information. Got: {final_response.content}"
+        
+        # Should mention at least one of the requested cities
+        assert any(city in content_lower for city in ['shanghai', 'guangzhou']), \
+            f"Final response should mention Shanghai or Guangzhou. Got: {final_response.content}"
+        
+        # Should not have additional tool calls in final response
+        assert not (hasattr(final_response, 'tool_calls') and final_response.tool_calls), \
+            "Final response should not contain additional tool calls"
     
     def test_tool_calling_with_structured_output(self):
         """Test tool calling combined with structured output."""
@@ -895,28 +993,65 @@ class TestChatQwenVllmToolCalling:
         
         weather_tool = self.get_weather_tool()
         
-        # First bind tools, then add structured output
+        # Step 1: Tool calling phase - bind tools WITHOUT guided_json
         llm_with_tools = self.llm.bind_tools([weather_tool])
-        structured_llm = llm_with_tools.with_structured_output(
+        
+        # Step 2: Get tool calls first
+        initial_messages = [
+            {
+                "role": "system", 
+                "content": "You are a weather assistant. Use the weather tool to get accurate information."
+            },
+            {
+                "role": "user", 
+                "content": "What's the weather in Tokyo?"
+            }
+        ]
+        
+        tool_response = llm_with_tools.invoke(initial_messages)
+        
+        # Verify that we got tool calls
+        assert hasattr(tool_response, 'tool_calls') and tool_response.tool_calls, \
+            "Should generate tool calls for weather query"
+        
+        # Execute tool calls
+        from langchain_core.messages import ToolMessage, AIMessage
+        tool_messages = []
+        
+        for tool_call in tool_response.tool_calls:
+            if tool_call['name'] == 'get_weather':
+                # Execute the weather tool
+                tool_result = weather_tool.invoke(tool_call['args'])
+                tool_messages.append(
+                    ToolMessage(
+                        content=tool_result,
+                        tool_call_id=tool_call['id']
+                    )
+                )
+        
+        # Step 3: Structured output phase - use guided_json for final response
+        structured_llm = self.llm.with_structured_output(
             schema=WeatherQuery,
             method="json_schema"
         )
         
-        response = structured_llm.invoke([
+        # Build conversation history with tool results
+        conversation_with_tools = initial_messages + [tool_response] + tool_messages
+        
+        # Add instruction for structured output
+        final_messages = conversation_with_tools + [
             {
-                "role": "system", 
-                "content": """You are a weather assistant. When asked about weather:
-1. Use the available weather tool to get accurate information
-2. Format the response according to the required schema
-3. IMPORTANT: For the 'unit' field, use EXACTLY 'celsius' or 'fahrenheit' (not '°C' or '°F')
-4. Extract the numerical temperature value without units
-5. Ensure all required fields are properly filled"""
-            },
-            {
-                "role": "user", 
-                "content": "What's the weather in Tokyo? Please provide the information in the structured format with temperature in celsius."
+                "role": "user",
+                "content": """Based on the weather information from the tool, please format the response 
+according to the WeatherQuery schema with the following requirements:
+1. Extract the numerical temperature value without units
+2. For the 'unit' field, use EXACTLY 'celsius' or 'fahrenheit' (not '°C' or '°F')
+3. Ensure all required fields are properly filled"""
             }
-        ])
+        ]
+        
+        # Get structured response
+        response = structured_llm.invoke(final_messages)
         
         # Should return structured data
         assert isinstance(response, WeatherQuery)
@@ -941,27 +1076,68 @@ class TestChatQwenVllmToolCalling:
             temperature_range: str = Field(description="Temperature range description")
         
         weather_tool = self.get_weather_tool()
+        
+        # Step 1: Tool calling phase - bind tools WITHOUT guided_json
         llm_with_tools = self.llm.bind_tools([weather_tool])
-        structured_llm = llm_with_tools.with_structured_output(
+        
+        # Step 2: Get tool calls first
+        initial_messages = [
+            {
+                "role": "system",
+                "content": "You are a weather analyst. Use the weather tool to gather information for each city."
+            },
+            {
+                "role": "user",
+                "content": "Get weather information for Beijing and Shanghai."
+            }
+        ]
+        
+        tool_response = llm_with_tools.invoke(initial_messages)
+        
+        # Verify that we got tool calls
+        assert hasattr(tool_response, 'tool_calls') and tool_response.tool_calls, \
+            "Should generate tool calls for weather query"
+        
+        # Execute tool calls
+        from langchain_core.messages import ToolMessage
+        tool_messages = []
+        
+        for tool_call in tool_response.tool_calls:
+            if tool_call['name'] == 'get_weather':
+                # Execute the weather tool
+                tool_result = weather_tool.invoke(tool_call['args'])
+                tool_messages.append(
+                    ToolMessage(
+                        content=tool_result,
+                        tool_call_id=tool_call['id']
+                    )
+                )
+        
+        # Step 3: Structured output phase with include_raw=True
+        structured_llm = self.llm.with_structured_output(
             schema=WeatherSummary,
             method="json_schema",
             include_raw=True
         )
         
-        response = structured_llm.invoke([
-            {
-                "role": "system",
-                "content": """You are a weather analyst. When analyzing weather:
-1. Use the weather tool to gather information for each city
-2. Provide a comprehensive summary in the required format
-3. List all cities that were queried
-4. Ensure the summary includes overall weather patterns"""
-            },
+        # Build conversation history with tool results
+        conversation_with_tools = initial_messages + [tool_response] + tool_messages
+        
+        # Add instruction for structured output
+        final_messages = conversation_with_tools + [
             {
                 "role": "user",
-                "content": "Get weather information for Beijing and Shanghai, then provide a summary with the overall condition and temperature range."
+                "content": """Based on the weather information from the tools, provide a comprehensive summary 
+according to the WeatherSummary schema with:
+1. List all cities that were queried
+2. Overall weather condition across cities
+3. Temperature range description
+4. Ensure the summary includes overall weather patterns"""
             }
-        ])
+        ]
+        
+        # Get structured response with raw output
+        response = structured_llm.invoke(final_messages)
         
         # Should return dict with raw, parsed, parsing_error
         assert isinstance(response, dict)
