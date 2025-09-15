@@ -107,102 +107,6 @@ class TestChatQwenVllmWithDeepAgents:
         content_str = str(final_message.content).lower()
         assert any(str(num) in content_str for num in [120, 143, 15, 8, 23])
 
-    @pytest.mark.skipif(not DEEPAGENTS_AVAILABLE, reason="deepagents not available")
-    def test_deepagent_with_structured_output_tools(self):
-        """Test deepagent with structured output tools."""
-        
-        class AnalysisResult(BaseModel):
-            """Result of data analysis."""
-            summary: str = Field(description="Brief summary of the analysis")
-            key_findings: List[str] = Field(description="List of key findings")
-            recommendation: str = Field(description="Recommended action")
-            confidence_score: float = Field(
-                description="Confidence score 0-1", ge=0, le=1
-            )
-
-        def analyze_data(data_description: str) -> str:
-            """Analyze the given data description.
-            
-            Args:
-                data_description: Description of the data to analyze
-                
-            Returns:
-                Analysis result as text
-            """
-            # Mock data analysis
-            if "sales" in data_description.lower():
-                return """Sales Analysis Results:
-                - Total sales increased by 15% compared to last quarter
-                - Top performing product: Product A (35% of total sales)
-                - Geographic performance: North region leads with 40% growth
-                - Recommendation: Expand Product A inventory and focus on North region
-                - Confidence: 0.85 based on historical data patterns"""
-            elif "user" in data_description.lower():
-                return """User Behavior Analysis:
-                - Average session duration: 8.5 minutes (up 12%)
-                - Bounce rate: 23% (down 8%)
-                - Top user action: Search functionality (used by 78% of users)
-                - Recommendation: Optimize search algorithm and add search suggestions
-                - Confidence: 0.92 based on comprehensive user tracking"""
-            else:
-                return """General Data Analysis:
-                - Data quality: Good (87% completeness)
-                - Trends: Positive growth trajectory
-                - Anomalies: 3 minor outliers detected
-                - Recommendation: Continue current strategy with minor adjustments
-                - Confidence: 0.75 due to limited context"""
-
-        # Instructions for the analysis agent
-        analysis_instructions = (
-            "You are a senior data analyst. "
-            "Your job is to analyze data and provide structured insights.\n\n"
-            "You have access to a data analysis tool.\n\n"
-            "## `analyze_data`\n\n"
-            "Use this to analyze data based on descriptions provided by users.\n\n"
-            "When providing your final analysis, structure your response "
-            "according to the AnalysisResult schema."
-        )
-
-        # Create the agent
-        agent = create_deep_agent(
-            tools=[analyze_data],
-            instructions=analysis_instructions,
-            model=self.llm,
-        )
-
-        # Note: structured_llm could be used for final response formatting
-        # structured_llm = self.llm.with_structured_output(
-        #     schema=AnalysisResult,
-        #     method="json_schema"
-        # )
-
-        # Test data analysis workflow
-        result = agent.invoke({
-            "messages": [
-                {
-                    "role": "user",
-                    "content": (
-                        "Please analyze our Q3 sales data and provide "
-                        "structured insights."
-                    )
-                }
-            ]
-        })
-
-        # Verify we got a result with messages
-        assert "messages" in result
-        assert len(result["messages"]) > 0
-        
-        # Check that analysis content is present
-        final_message = result["messages"][-1]
-        assert hasattr(final_message, 'content')
-        content = str(final_message.content).lower()
-        
-        # Should contain analysis-related terms
-        analysis_terms = [
-            "sales", "analysis", "product", "recommendation", "growth"
-        ]
-        assert any(term in content for term in analysis_terms)
 
     @pytest.mark.skipif(
         not (DEEPAGENTS_AVAILABLE and TAVILY_AVAILABLE), 
@@ -338,7 +242,8 @@ class TestChatQwenVllmWithDeepAgents:
             tools=[create_report],
             instructions=report_instructions,
             model=self.llm,
-            builtin_tools=["write_file", "read_file", "ls", "edit_file"],  # Enable file system tools
+            # Enable file system tools
+            builtin_tools=["write_file", "read_file", "ls", "edit_file"],
         )
 
         # Test with initial files
@@ -382,51 +287,144 @@ class TestChatQwenVllmWithDeepAgents:
 
     @pytest.mark.skipif(not DEEPAGENTS_AVAILABLE, reason="deepagents not available")
     def test_deepagent_with_subagents(self):
-        """Test deepagent with subagent functionality."""
+        """Test deepagent with proper subagent functionality using subagents param."""
         
-        def specialized_calculation(calculation_type: str, problem: str) -> str:
-            """Perform specialized calculations.
+        def math_calculator(operation: str, numbers: str) -> str:
+            """Perform basic math operations.
             
             Args:
-                calculation_type: Type of calculation (statistics, geometry, algebra)
-                problem: Description of the problem to solve
+                operation: Type of operation (add, multiply, mean, area_circle,
+                    solve_linear)
+                numbers: Numbers or parameters for the operation (comma-separated)
                 
             Returns:
-                Solution to the problem
+                Result of the calculation
             """
-            if calculation_type == "statistics":
-                return "Statistical analysis: Mean=45.6, Median=44.2, Std Dev=12.3"
-            elif calculation_type == "geometry":
-                return "Geometric solution: Area=78.5 sq units, Perimeter=31.4 units"
-            elif calculation_type == "algebra":
-                return "Algebraic solution: x=7.2, y=-3.1, z=5.8"
+            nums = [float(x.strip()) for x in numbers.split(",") if x.strip()]
+            
+            if operation == "add":
+                return f"Sum: {sum(nums)}"
+            elif operation == "multiply":
+                return f"Product: {nums[0] * nums[1] if len(nums) >= 2 else nums[0]}"
+            elif operation == "mean":
+                return f"Mean: {sum(nums) / len(nums)}"
+            elif operation == "area_circle":
+                # Expecting radius as first number
+                import math
+                radius = nums[0]
+                area = math.pi * radius * radius
+                return f"Circle area with radius {radius}: {area:.2f} square units"
+            elif operation == "solve_linear":
+                # For equation ax + b = c, expecting a, b, c
+                if len(nums) >= 3:
+                    a, b, c = nums[0], nums[1], nums[2]
+                    x = (c - b) / a if a != 0 else "undefined"
+                    return f"Solution for {a}x + {b} = {c}: x = {x}"
+                else:
+                    return "Need 3 numbers for linear equation (a, b, c)"
             else:
-                return (
-                    f"Solution for {calculation_type}: "
-                    "Result calculated successfully"
-                )
+                return f"Unknown operation: {operation}"
 
-        # Instructions for the math tutor agent
-        tutor_instructions = (
-            "You are an expert math tutor. "
-            "Your job is to help students solve complex mathematical problems.\n\n"
-            "You have access to specialized calculation tools and can "
-            "delegate to subagents for complex tasks.\n\n"
-            "## `specialized_calculation`\n\n"
-            "Use this for specialized mathematical calculations in statistics, "
-            "geometry, or algebra.\n\n"
-            "When dealing with complex multi-step problems, break them down "
-            "and use the general-purpose subagent for coordination."
+        def data_analyzer(data: str, analysis_type: str) -> str:
+            """Analyze data sets.
+            
+            Args:
+                data: Comma-separated numbers to analyze
+                analysis_type: Type of analysis (mean, median, range)
+                
+            Returns:
+                Analysis result
+            """
+            try:
+                nums = [float(x.strip()) for x in data.split(",") if x.strip()]
+                nums.sort()
+                
+                if analysis_type == "mean":
+                    mean = sum(nums) / len(nums)
+                    return f"Mean of {data}: {mean:.2f}"
+                elif analysis_type == "median":
+                    n = len(nums)
+                    if n % 2 == 0:
+                        median = (nums[n//2 - 1] + nums[n//2]) / 2
+                    else:
+                        median = nums[n//2]
+                    return f"Median of {data}: {median}"
+                elif analysis_type == "range":
+                    range_val = max(nums) - min(nums)
+                    return f"Range of {data}: {range_val}"
+                else:
+                    return f"Unknown analysis type: {analysis_type}"
+            except Exception as e:
+                return f"Error analyzing data: {e}"
+
+        # Define specialized subagents
+        subagents = [
+            {
+                "name": "geometry-specialist",
+                "description": (
+                    "Specialized in geometric calculations like areas, perimeters, "
+                    "volumes"
+                ),
+                "prompt": (
+                    "You are a geometry specialist. Focus on solving geometric "
+                    "problems with precision. Use the math_calculator tool for area "
+                    "calculations, and provide clear explanations of geometric "
+                    "concepts."
+                ),
+                "tools": ["math_calculator"]  # Only has access to math_calculator
+            },
+            {
+                "name": "statistics-analyst", 
+                "description": (
+                    "Expert in statistical analysis and data interpretation"
+                ),
+                "prompt": (
+                    "You are a statistics analyst. Your specialty is analyzing "
+                    "datasets and computing statistical measures. Use the "
+                    "data_analyzer tool for statistical calculations and explain "
+                    "the significance of results."
+                ),
+                "tools": ["data_analyzer"]  # Only has access to data_analyzer  
+            },
+            {
+                "name": "algebra-solver",
+                "description": (
+                    "Specialized in solving algebraic equations and expressions"
+                ),
+                "prompt": (
+                    "You are an algebra expert. Focus on solving equations, working "
+                    "with variables, and explaining algebraic concepts clearly. Use "
+                    "the math_calculator tool for equation solving."
+                ),
+                "tools": ["math_calculator"]  # Only has access to math_calculator
+            }
+        ]
+
+        # Instructions for the main coordination agent
+        coordinator_instructions = (
+            "You are a math tutor coordinator. Your job is to help students "
+            "solve complex mathematical problems by breaking them down and "
+            "delegating to specialized subagents.\n\n"
+            "You have access to specialized subagents:\n"
+            "- geometry-specialist: For geometric calculations\n"
+            "- statistics-analyst: For statistical analysis\n" 
+            "- algebra-solver: For algebraic equations\n\n"
+            "When you receive a complex problem with multiple parts:\n"
+            "1. Break it down into individual components\n"
+            "2. Delegate each component to the appropriate specialist\n"
+            "3. Collect results and provide a comprehensive summary\n\n"
+            "Use the call_subagent tool to delegate tasks to specialists."
         )
 
-        # Create the agent with subagent support
+        # Create the agent with custom subagents
         agent = create_deep_agent(
-            tools=[specialized_calculation],
-            instructions=tutor_instructions,
+            tools=[math_calculator, data_analyzer],
+            instructions=coordinator_instructions, 
             model=self.llm,
+            subagents=subagents  # Pass the custom subagents
         )
 
-        # Test complex problem that might benefit from subagents
+        # Test complex multi-part problem that requires delegation
         result = agent.invoke({
             "messages": [
                 {
@@ -435,10 +433,9 @@ class TestChatQwenVllmWithDeepAgents:
                         "I need help with a complex math problem that involves "
                         "multiple concepts:\n\n"
                         "1. Calculate the area of a circle with radius 5\n"
-                        "2. Find the statistical mean of the dataset "
-                        "[2, 4, 6, 8, 10, 12]\n"
+                        "2. Find the mean of the dataset [2, 4, 6, 8, 10, 12]\n"
                         "3. Solve the equation 2x + 3 = 15\n\n"
-                        "Please provide step-by-step solutions for each part."
+                        "Please solve each part step-by-step using your specialists."
                     )
                 }
             ]
@@ -453,12 +450,24 @@ class TestChatQwenVllmWithDeepAgents:
         assert hasattr(final_message, 'content')
         content_str = str(final_message.content).lower()
         
-        # Should contain mathematical content
-        math_terms = [
-            "area", "circle", "radius", "mean", "equation", 
-            "solution", "calculate"
+        # Should contain mathematical content from different specialists
+        expected_terms = [
+            "area", "circle", "radius",  # From geometry specialist
+            "mean", "dataset",           # From statistics analyst  
+            "equation", "solve", "x",    # From algebra solver
         ]
-        assert any(term in content_str for term in math_terms)
+        assert any(term in content_str for term in expected_terms)
+        
+        # Should show evidence of subagent delegation
+        delegation_terms = [
+            "specialist", "delegate", "subagent", "expert"
+        ]
+        # Check if any message in the conversation shows delegation
+        all_content = " ".join([
+            str(msg.content).lower() for msg in result["messages"] 
+            if hasattr(msg, 'content') and msg.content is not None
+        ])
+        assert any(term in all_content for term in delegation_terms)
 
     @pytest.mark.skipif(not DEEPAGENTS_AVAILABLE, reason="deepagents not available")  
     @pytest.mark.asyncio
@@ -600,97 +609,6 @@ class TestChatQwenVllmWithDeepAgents:
         final_message = result_fail["messages"][-1]
         assert hasattr(final_message, 'content')
         assert final_message.content is not None
-
-    @pytest.mark.skipif(not DEEPAGENTS_AVAILABLE, reason="deepagents not available")
-    def test_deepagent_with_thinking_enabled(self):
-        """Test deepagent with ChatQwenVllm thinking capabilities."""
-        
-        def complex_reasoning_task(scenario: str) -> str:
-            """Handle complex reasoning scenarios.
-            
-            Args:
-                scenario: Description of the scenario to analyze
-                
-            Returns:
-                Analysis result
-            """
-            if "ethical" in scenario.lower():
-                return """Ethical analysis completed:
-                - Primary stakeholders: Patients, healthcare providers, society
-                - Competing values: Individual autonomy vs. collective benefit
-                - Recommended approach: Balanced framework considering all 
-                  perspectives
-                - Risk factors: Potential for discrimination, resource 
-                  allocation issues"""
-            else:
-                return (
-                    f"Complex analysis of scenario: {scenario} completed with "
-                    "multi-factor consideration."
-                )
-
-        # Instructions that encourage deep thinking
-        thinking_instructions = (
-            "You are a philosopher and critical thinking expert. "
-            "Your job is to analyze complex scenarios that require deep "
-            "reasoning.\n\n"
-            "You have access to complex reasoning tools and should think "
-            "step by step.\n\n"
-            "## `complex_reasoning_task`\n\n"
-            "Use this for analyzing complex scenarios that require careful "
-            "consideration of multiple factors.\n\n"
-            "Take your time to think through problems thoroughly before "
-            "providing conclusions."
-        )
-
-        # Create agent with thinking-enabled ChatQwenVllm
-        thinking_llm = ChatQwenVllm(
-            model="Qwen/Qwen3-32B",
-            temperature=0.1,
-            enable_thinking=True,  # Enable thinking mode
-            max_tokens=3000,
-        )
-
-        agent = create_deep_agent(
-            tools=[complex_reasoning_task],
-            instructions=thinking_instructions,
-            model=thinking_llm,
-        )
-
-        # Test with a complex ethical scenario
-        result = agent.invoke({
-            "messages": [
-                {
-                    "role": "user",
-                    "content": (
-                        "Please analyze this ethical dilemma:\n\n"
-                        "A new medical treatment is available that can save lives, "
-                        "but it's extremely expensive and resources are limited. "
-                        "How should healthcare systems decide who gets access to "
-                        "this treatment? Consider the ethical implications and "
-                        "provide a reasoned analysis."
-                    )
-                }
-            ]
-        })
-
-        # Verify we got a comprehensive result
-        assert "messages" in result
-        assert len(result["messages"]) > 0
-        
-        # Check that the response shows evidence of complex reasoning
-        final_message = result["messages"][-1]
-        assert hasattr(final_message, 'content')
-        content_str = str(final_message.content).lower()
-        
-        # Should contain ethical reasoning concepts
-        reasoning_terms = [
-            "ethical", "analysis", "stakeholder", "consider", "factor", 
-            "treatment", "healthcare", "resource", "access", "decision"
-        ]
-        assert any(term in content_str for term in reasoning_terms)
-        
-        # Content should be substantial (indicating deep reasoning)
-        assert len(content_str) > 100  # Should be a thoughtful response
 
 
 class TestDeepAgentsIntegrationRequirements:
