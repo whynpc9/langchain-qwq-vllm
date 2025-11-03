@@ -148,6 +148,10 @@ class ChatQwenVllm(ChatQwen):
     def _llm_type(self) -> str:
         """Return type of chat model."""
         return "chat-qwen"
+    
+    def _supports_structured_output(self) -> bool:
+        """Indicate that this model supports native structured output via guided_json."""
+        return True
 
     def _check_need_stream(self) -> bool:
         """VLLM can handle both streaming and non-streaming efficiently."""
@@ -156,6 +160,51 @@ class ChatQwenVllm(ChatQwen):
     def _support_tool_choice(self) -> bool:
         """VLLM backend supports tool choice functionality."""
         return True
+    
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict:
+        """Override to handle guided_json for structured output."""
+        from langchain_core.utils.function_calling import convert_to_json_schema
+        from langchain_openai.chat_models.base import _is_pydantic_class
+        
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        
+        # Handle OpenAI's response_format and convert to VLLM's guided_json
+        # This is used when using ProviderStrategy with create_agent
+        if 'response_format' in payload:
+            response_format = payload['response_format']
+            
+            # Extract JSON schema from OpenAI response_format
+            if isinstance(response_format, dict):
+                if response_format.get('type') == 'json_schema':
+                    json_schema_data = response_format.get('json_schema', {})
+                    schema = json_schema_data.get('schema')
+                    
+                    if schema:
+                        # Add guided_json to extra_body
+                        if 'extra_body' not in payload:
+                            payload['extra_body'] = {}
+                        
+                        # IMPORTANT: VLLM doesn't support guided_json with other extra_body params
+                        # Clear extra_body and only add guided_json
+                        payload['extra_body'] = {'guided_json': schema}
+                        
+                        # Remove response_format as VLLM doesn't support it
+                        del payload['response_format']
+                        
+                        # IMPORTANT: VLLM doesn't support tools + guided_json simultaneously
+                        # Remove tools when using guided_json
+                        if 'tools' in payload:
+                            del payload['tools']
+                        if 'parallel_tool_calls' in payload:
+                            del payload['parallel_tool_calls']
+        
+        return payload
 
     @property
     def _default_params(self) -> Dict[str, Any]:
@@ -167,6 +216,8 @@ class ChatQwenVllm(ChatQwen):
                 "chat_template_kwargs": {"enable_thinking": self.enable_thinking}
             }
         else:
+            if "chat_template_kwargs" not in self.extra_body:
+                self.extra_body["chat_template_kwargs"] = {}
             self.extra_body["chat_template_kwargs"]["enable_thinking"] = (
                 self.enable_thinking
             )

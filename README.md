@@ -1,6 +1,8 @@
 # langchain-qwq-vllm
 
-A VLLM-optimized integration package for Qwen3 models with LangChain, forked from [@yigit353/langchain-qwq](https://github.com/yigit353/langchain-qwq). This implementation is specifically designed for VLLM deployments of Qwen3 models and explores integration with Deep Agents framework.
+A VLLM-optimized integration package for Qwen3 models with **LangChain 1.0**, forked from [@yigit353/langchain-qwq](https://github.com/yigit353/langchain-qwq). This implementation is specifically designed for VLLM deployments of Qwen3 models and uses the modern LangChain 1.x agent framework.
+
+> **📌 Version Notice**: This is the **LangChain 1.0** version (v1.0.0+). For the legacy LangChain 0.3 version, please check out the [`classic`](https://github.com/yourusername/langchain-qwq-vllm/tree/classic) branch.
 
 ## ✨ Key Advantages
 
@@ -8,17 +10,56 @@ This fork provides essential enhancements for VLLM environments:
 
 - **🔧 VLLM Native Support**: Optimized for VLLM backend with native `guided_json` support
 - **🧠 Thinking + Structured Output**: Unique capability to combine reasoning mode with structured output (not available in original BaiLian platform)
-- **🤖 Deep Agents Integration**: Full compatibility with Deep Agents framework for advanced AI workflows
+- **🤖 LangChain 1.0 Agents**: Full compatibility with modern LangChain 1.x agent framework using `create_agent()`
+- **📋 Provider Strategy**: Native structured output support for LangChain 1.0 agents
 - **⚡ Enhanced Performance**: Optimized for local/self-hosted VLLM deployments
+
+### What's New in v1.0.0
+
+- ✅ Migrated to LangChain 1.0+ (langchain-core, langchain, langgraph)
+- ✅ Replaced DeepAgent with standard `create_agent()` API
+- ✅ Implemented Provider Strategy for structured output with agents
+- ✅ Added comprehensive integration tests for LangChain 1.x
+- ✅ Improved documentation and examples
+
+For migration guide from 0.x to 1.0, see [LANGCHAIN_V1_MIGRATION.md](LANGCHAIN_V1_MIGRATION.md).
 
 ## 🚀 Features
 
+- **LangChain 1.0 Ready**: Fully compatible with LangChain 1.x, LangGraph 1.x
 - **Streaming Support**: Real-time synchronous and asynchronous streaming
-- **Reasoning Access**: Direct access to model's internal thinking process
-- **Structured Output**: JSON schema-based structured responses using VLLM's `guided_json`
+- **Reasoning Access**: Direct access to model's internal thinking process with `enable_thinking`
+- **Structured Output**: Provider Strategy with VLLM's native `guided_json` support
 - **Tool Calling**: Function calling with parallel execution support
-- **Deep Agents Integration**: Seamless integration with Deep Agents framework
+- **Modern Agent Framework**: Full support for LangChain 1.0's `create_agent()` pattern
+- **Comprehensive Tests**: 19 integration tests covering all features
 
+
+## 📦 Installation
+
+### For LangChain 1.0 (Current Version)
+
+```bash
+# Install from main branch
+pip install git+https://github.com/yourusername/langchain-qwq-vllm.git
+
+# Or clone and install
+git clone https://github.com/yourusername/langchain-qwq-vllm.git
+cd langchain-qwq-vllm
+pip install -e .
+```
+
+### For LangChain 0.3 (Legacy)
+
+```bash
+# Install from classic branch
+pip install git+https://github.com/yourusername/langchain-qwq-vllm.git@classic
+
+# Or clone and install
+git clone -b classic https://github.com/yourusername/langchain-qwq-vllm.git
+cd langchain-qwq-vllm
+pip install -e .
+```
 
 ## 🔧 Environment Setup
 
@@ -26,6 +67,7 @@ Configure your VLLM endpoint:
 
 ```bash
 export VLLM_API_BASE="http://localhost:8000/v1"  # Default: http://localhost:8000/v1
+export OPENAI_API_KEY="dummy-key-for-vllm"      # Required but can be dummy value
 ```
 
 Start your VLLM server:
@@ -69,30 +111,40 @@ for chunk in llm.stream("Solve this math problem: 15 * 23 + 7"):
         print(f"💬 {chunk.content}", end="")
 ```
 
-### Structured Output with Reasoning
+### Structured Output with Agents (LangChain 1.0)
 
-**🌟 This is the key advantage: combining thinking mode with structured output!**
+**🌟 New in v1.0: Native Provider Strategy support for structured output!**
 
 ```python
 from pydantic import BaseModel, Field
 from typing import List
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ProviderStrategy
 
 class AnalysisResult(BaseModel):
     summary: str = Field(description="Brief analysis summary")
     key_points: List[str] = Field(description="Key findings")
     confidence: float = Field(description="Confidence score 0-1")
 
-# Enable both thinking AND structured output
-structured_llm = llm.with_structured_output(
-    schema=AnalysisResult,
-    method="json_schema"
+# Create agent with structured output using ProviderStrategy
+agent = create_agent(
+    model=llm,
+    tools=[],
+    system_prompt="You are an expert analyst.",
+    response_format=ProviderStrategy(AnalysisResult)  # Important: Use ProviderStrategy!
 )
 
-result = structured_llm.invoke("Analyze the benefits of renewable energy")
-print(f"Summary: {result.summary}")
-print(f"Key Points: {result.key_points}")
-print(f"Confidence: {result.confidence}")
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "Analyze the benefits of renewable energy"}]
+})
+
+analysis = result["structured_response"]
+print(f"Summary: {analysis.summary}")
+print(f"Key Points: {analysis.key_points}")
+print(f"Confidence: {analysis.confidence}")
 ```
+
+> **⚠️ Important**: Always use `ProviderStrategy(schema)` explicitly for ChatQwenVllm with agents to ensure VLLM's native `guided_json` is used.
 
 ### Tool Calling
 
@@ -136,84 +188,195 @@ print(f"Steps: {result.steps}")
 print(f"Answer: {result.answer}")
 ```
 
-## 🤖 Deep Agents Integration
+## 🤖 LangChain 1.0 Agent Integration
 
 ```python
-from deepagents import create_deep_agent
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
 
-# Create a research agent with web search capabilities
+@tool
 def web_search(query: str) -> str:
     """Search the web for information."""
     # Implementation depends on your search provider
     return f"Search results for: {query}"
 
-agent = create_deep_agent(
-    tools=[web_search],
-    instructions="You are a research assistant with web access.",
+@tool
+def calculator(expression: str) -> str:
+    """Calculate mathematical expressions."""
+    return str(eval(expression))
+
+# Create an agent using LangChain 1.0 pattern
+agent = create_agent(
     model=llm,  # Use our ChatQwenVllm model
+    tools=[web_search, calculator],
+    system_prompt="You are a research assistant with web access and calculation abilities."
 )
 
-# The agent can now use reasoning + tools + structured output
+# The agent can now use reasoning + tools
 result = agent.invoke({
     "messages": [
-        {
-            "role": "user",
-            "content": "Research the latest developments in quantum computing"
-        }
+        HumanMessage(content="Research the latest developments in quantum computing and calculate its market size growth rate")
     ]
 })
+
+# Access the results
+final_message = result["messages"][-1]
+print(final_message.content)
+
+# View all messages including tool calls
+for msg in result["messages"]:
+    print(f"{msg.__class__.__name__}: {msg.content[:100]}...")
+```
+
+### Agent with Structured Output
+
+Combine agent tool calling with structured output:
+
+```python
+from pydantic import BaseModel, Field
+from langchain.agents.structured_output import ProviderStrategy
+
+class ResearchReport(BaseModel):
+    topic: str = Field(description="Research topic")
+    summary: str = Field(description="Executive summary")
+    key_findings: list[str] = Field(description="Main findings")
+    sources: list[str] = Field(description="Information sources used")
+
+# Agent that returns structured research report
+agent = create_agent(
+    model=llm,
+    tools=[web_search, calculator],
+    system_prompt="You are a research assistant. Use tools to gather information, then provide a structured report.",
+    response_format=ProviderStrategy(ResearchReport)
+)
+
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "Research AI market trends in 2024"}]
+})
+
+report = result["structured_response"]
+print(f"Topic: {report.topic}")
+print(f"Summary: {report.summary}")
+print(f"Key Findings: {report.key_findings}")
+```
+
+> **⚠️ Note**: When using `response_format` with agents, tools cannot be called in the final response. For tool calling + structured output, process in multiple steps or use `with_structured_output()` on the model directly.
+
+## ⚠️ Important Limitations
+
+### Structured Output Constraints
+
+Due to VLLM's implementation, the following combinations are **not supported**:
+
+```python
+# ❌ Cannot use guided_json with enable_thinking
+llm = ChatQwenVllm(enable_thinking=True)
+agent = create_agent(
+    model=llm,
+    response_format=ProviderStrategy(MySchema)  # Will fail or disable thinking
+)
+
+# ❌ Cannot use guided_json with tools in the same call
+agent = create_agent(
+    model=llm,
+    tools=[my_tool],  # Tools will be removed when structured output is used
+    response_format=ProviderStrategy(MySchema)
+)
+
+# ✅ Use structured output without thinking/tools
+llm = ChatQwenVllm(enable_thinking=False)
+agent = create_agent(
+    model=llm,
+    tools=[],  # No tools
+    response_format=ProviderStrategy(MySchema)
+)
+
+# ✅ Or use with_structured_output for more flexibility
+structured_llm = llm.with_structured_output(MySchema, method="json_schema")
+result = structured_llm.invoke("Your query")
+```
+
+### Provider Strategy Requirement
+
+Always use `ProviderStrategy` explicitly with `create_agent`:
+
+```python
+# ✅ Correct - Explicit ProviderStrategy
+from langchain.agents.structured_output import ProviderStrategy
+response_format=ProviderStrategy(MySchema)
+
+# ❌ Not recommended - May fall back to ToolStrategy
+response_format=MySchema
 ```
 
 ## 📊 Advanced Examples
 
-### Multi-step Analysis with File Operations
+### Multi-step Analysis with Multiple Tools
 
 ```python
-from deepagents import create_deep_agent
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
 
+@tool
 def analyze_data(data_description: str) -> str:
     """Analyze data and provide insights."""
     return "Statistical analysis completed with key findings..."
 
-# Agent with file system access
-agent = create_deep_agent(
-    tools=[analyze_data],
-    instructions="You are a data analyst with file access.",
+@tool
+def create_chart(data: str, chart_type: str) -> str:
+    """Create a visualization chart."""
+    return f"Created {chart_type} chart from data"
+
+# Agent with multiple analysis tools
+agent = create_agent(
     model=llm,
-    builtin_tools=["write_file", "read_file", "ls"],  # File system tools
+    tools=[analyze_data, create_chart],
+    system_prompt="You are a data analyst. Use tools to analyze data and create visualizations."
 )
 
 result = agent.invoke({
     "messages": [
-        {
-            "role": "user",
-            "content": "Analyze the sales data and create a report"
-        }
-    ],
-    "files": {
-        "sales_data.csv": "Q1,100000\nQ2,120000\nQ3,135000"
-    }
+        HumanMessage(content="Analyze sales trends and create a bar chart")
+    ]
 })
 ```
 
-### Async Operations
+### Async Operations with Agents
 
 ```python
 import asyncio
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
+
+@tool
+def quick_search(query: str) -> str:
+    """Perform a quick search."""
+    return f"Search results for: {query}"
 
 async def process_requests():
-    """Process multiple requests asynchronously."""
+    """Process multiple agent requests asynchronously."""
     
-    tasks = [
-        llm.ainvoke("Analyze renewable energy trends"),
-        llm.ainvoke("Explain machine learning basics"),
-        llm.ainvoke("Describe quantum computing applications")
+    agent = create_agent(
+        model=llm,
+        tools=[quick_search],
+        system_prompt="You are a helpful research assistant."
+    )
+    
+    # Process multiple queries concurrently
+    queries = [
+        "Analyze renewable energy trends",
+        "Explain machine learning basics",
+        "Describe quantum computing applications"
     ]
     
-    responses = await asyncio.gather(*tasks)
-    
-    for i, response in enumerate(responses, 1):
-        print(f"Response {i}: {response.content[:100]}...")
+    for query in queries:
+        result = await agent.ainvoke({
+            "messages": [HumanMessage(content=query)]
+        })
+        print(f"Response: {result['messages'][-1].content[:100]}...")
 
 # Run async processing
 asyncio.run(process_requests())
@@ -227,7 +390,7 @@ asyncio.run(process_requests())
 | Structured Output | ✅ | ✅ |
 | **Thinking + Structured** | ❌ | ✅ |
 | Tool Calling | ✅ | ✅ |
-| Deep Agents | ⚠️ Limited | ✅ Full Support |
+| LangChain 1.0 Agents | ❌ | ✅ Full Support |
 | Local Deployment | ❌ | ✅ |
 | Custom VLLM Optimizations | ❌ | ✅ |
 
@@ -241,7 +404,7 @@ langchain-qwq-vllm/
 │   └── utils.py                # Utility functions
 ├── tests/
 │   ├── unit_tests/             # Unit tests
-│   └── integration_tests/      # Deep Agents integration tests
+│   └── integration_tests/      # LangChain 1.0 agent integration tests
 ├── docs/
 │   ├── tool_calling_example.py  # Tool calling examples
 │   └── vllm_structured_output_example.py  # Structured output examples
@@ -260,8 +423,8 @@ pytest tests/unit_tests/
 # Integration tests (requires VLLM server)
 pytest tests/integration_tests/
 
-# Specific Deep Agents tests
-pytest tests/integration_tests/test_chat_models_with_deepagents.py
+# LangChain 1.0 agent tests
+pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py
 ```
 
 ## 🚀 Getting Started
@@ -273,7 +436,8 @@ pytest tests/integration_tests/test_chat_models_with_deepagents.py
 
 2. **Install dependencies**:
    ```bash
-   pip install langchain-qwq deepagents
+   pip install langchain-qwq
+   # Note: Requires LangChain 1.0+
    ```
 
 3. **Run examples**:
@@ -284,10 +448,10 @@ pytest tests/integration_tests/test_chat_models_with_deepagents.py
 
 ## 🤝 Contributing
 
-This project focuses on VLLM optimization and Deep Agents integration. Contributions are welcome for:
+This project focuses on VLLM optimization and LangChain 1.0 integration. Contributions are welcome for:
 
 - VLLM performance optimizations
-- Deep Agents workflow examples
+- LangChain 1.0 agent workflow examples
 - Advanced reasoning + structured output use cases
 - Documentation improvements
 
@@ -299,8 +463,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - **Original Project**: [@yigit353/langchain-qwq](https://github.com/yigit353/langchain-qwq)
 - **Development Tool**: This project was entirely developed using [Cursor](https://cursor.so/) AI-powered code editor
-- **Framework**: Built on [LangChain](https://github.com/langchain-ai/langchain) and [VLLM](https://github.com/vllm-project/vllm)
-- **AI Framework**: Integrated with [Deep Agents](https://github.com/multimodal-art-projection/deepagents)
+- **Framework**: Built on [LangChain 1.0](https://github.com/langchain-ai/langchain) and [VLLM](https://github.com/vllm-project/vllm)
 
 ---
 

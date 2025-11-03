@@ -1,140 +1,98 @@
-# Integration Tests for ChatQwenVllm
+# Integration Tests for LangChain 1.x
 
-This directory contains integration tests for the `ChatQwenVllm` class, which provides VLLM backend support for Qwen models.
+This directory contains integration tests for the langchain-qwq-vllm package with LangChain 1.x.
 
-## Test Structure
+## Test Files
 
-### TestChatQwenVllmIntegration
-Standard LangChain integration tests that verify basic functionality:
-- Basic invocation and streaming
-- Tool calling capabilities
-- Structured output support
-- Async operations
+### `test_chat_models_vllm_langchain_agent.py`
+Tests for LangChain 1.x agent integration with ChatQwenVllm:
+- Basic agent creation and execution
+- Tool calling with agents
+- Error handling in agents
+- Compatibility with `enable_thinking` parameter
+- Agent execution with various configurations
 
-### TestChatQwenVllmReasoningContent
-Tests specifically for reasoning content handling:
-- ✅ **Sync invocation**: `test_basic_invoke_with_reasoning()`
-- ✅ **Sync streaming**: `test_stream_with_reasoning_content()`
-- ✅ **Async invocation**: `test_async_invoke_with_reasoning()`
-- ✅ **Async streaming**: `test_async_stream_with_reasoning_content()`
-- ✅ **Reasoning structure**: Validates `reasoning_content` in `additional_kwargs`
+### `test_structured_output_with_agent.py`
+Tests for structured output support with LangChain 1.x agents:
+- Simple Pydantic model extraction
+- Complex nested structures
+- Lists and arrays
+- Optional fields
+- Enums and literals
+- Field validation
+- Extraction accuracy
+- Backward compatibility with `with_structured_output`
 
-### TestChatQwenVllmFeatures
-Feature-specific tests:
-- Tool calling functionality
-- JSON mode structured output
-- Batch processing (sync/async)
-- `enable_thinking` parameter control
-- Model configuration validation
+## Running Tests
 
-### TestChatQwenVllmErrorHandling
-Error handling and edge cases:
-- Empty message handling
-- Invalid model names
+### Run all integration tests:
+```bash
+pytest tests/integration_tests/ -v
+```
+
+### Run specific test file:
+```bash
+pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py -v
+pytest tests/integration_tests/test_structured_output_with_agent.py -v
+```
+
+### Run specific test:
+```bash
+pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py::TestChatQwenVllmLangChainAgent::test_basic_agent_creation -v
+```
 
 ## Prerequisites
 
-Before running the integration tests, you need:
-
-1. **VLLM Server**: Start a VLLM server with a Qwen model
+1. **VLLM Server Running**: Ensure a VLLM server is running with Qwen3 model:
    ```bash
-   # Example: Start VLLM server
-   vllm serve Qwen/Qwen3-32B-Instruct --port 8000
+   vllm serve Qwen/Qwen3-32B --port 8000
    ```
 
-2. **Environment Variables**: Configure the VLLM connection
+2. **Environment Variables**: Set the VLLM API base:
    ```bash
-   # Set VLLM API base URL (defaults to http://localhost:8000/v1)
    export VLLM_API_BASE="http://localhost:8000/v1"
-   
-   # VLLM servers typically don't require API keys, but if yours does:
-   export OPENAI_API_KEY="your-vllm-api-key"
+   export OPENAI_API_KEY="dummy-key-for-vllm"  # Required but can be dummy
    ```
 
-3. **Install Test Dependencies**:
+3. **Dependencies**: Install test dependencies:
    ```bash
    pip install -e ".[test]"
    ```
 
-## Running Tests
+## Test Coverage
 
-### Run All VLLM Integration Tests
-```bash
-pytest tests/integration_tests/test_chat_models_vllm.py -v
-```
+### Agent Integration (test_chat_models_vllm_langchain_agent.py)
+- ✅ LangChain version verification
+- ✅ `create_agent` availability check
+- ✅ Basic agent creation with tools
+- ✅ Agent execution with simple queries
+- ✅ Error handling in agent loops
+- ✅ `enable_thinking` compatibility with agents
 
-### Run Specific Test Classes
-```bash
-# Test reasoning content handling
-pytest tests/integration_tests/test_chat_models_vllm.py::TestChatQwenVllmReasoningContent -v
+### Structured Output (test_structured_output_with_agent.py)
+- ✅ Simple field extraction (ContactInfo)
+- ✅ Nested structures (Person with Address)
+- ✅ Lists and complex types (ProductReview)
+- ✅ Optional fields (EventInfo)
+- ✅ Enums and literals (Task with Priority)
+- ✅ Field validation (OrderInfo)
+- ✅ Extraction accuracy (MovieInfo)
+- ✅ Backward compatibility (`with_structured_output`)
 
-# Test core features
-pytest tests/integration_tests/test_chat_models_vllm.py::TestChatQwenVllmFeatures -v
+## Migration Notes
 
-# Test error handling
-pytest tests/integration_tests/test_chat_models_vllm.py::TestChatQwenVllmErrorHandling -v
-```
+These tests are designed for **LangChain 1.x** and use the modern agent framework:
+- Uses `create_agent()` instead of `DeepAgent`
+- Uses `ProviderStrategy` for structured output with agents
+- Compatible with LangGraph's `CompiledStateGraph`
+- Removed deprecated LangChain 0.3 patterns
 
-### Run Specific Tests
-```bash
-# Test basic reasoning content access
-pytest tests/integration_tests/test_chat_models_vllm.py::TestChatQwenVllmReasoningContent::test_basic_invoke_with_reasoning -v
+## Known Limitations
 
-# Test streaming with reasoning
-pytest tests/integration_tests/test_chat_models_vllm.py::TestChatQwenVllmReasoningContent::test_stream_with_reasoning_content -v
-```
+1. **Structured Output with Agents**: Must use explicit `ProviderStrategy` as ChatQwenVllm is not automatically recognized by LangChain's `_supports_provider_strategy` function.
 
-## Test Configuration
+2. **VLLM Constraints**: 
+   - Cannot use `guided_json` with `enable_thinking` simultaneously
+   - Cannot use `guided_json` with `tools` simultaneously
 
-The tests use the following default configuration:
-- **Model**: `Qwen/Qwen3-32B`
-- **Temperature**: 0.1
-- **Max tokens**: 200 (for reasoning tests)
-- **Enable thinking**: True
-- **API Base**: `http://localhost:8000/v1` (configurable via `VLLM_API_BASE`)
-
-## Expected Behavior
-
-When properly configured, the tests validate:
-
-1. **Reasoning Content Access**: 
-   ```python
-   response = llm.invoke("Solve: 2+2")
-   reasoning = response.additional_kwargs.get("reasoning_content", "")
-   assert "reasoning_content" in response.additional_kwargs
-   ```
-
-2. **Streaming with Reasoning**:
-   ```python
-   for chunk in llm.stream("Explain how to solve this"):
-       if hasattr(chunk, 'additional_kwargs') and "reasoning_content" in chunk.additional_kwargs:
-           # Handle reasoning content
-           print(chunk.additional_kwargs["reasoning_content"], end="")
-       elif hasattr(chunk, 'content') and chunk.content:
-           # Handle response content
-           print(chunk.content, end="")
-   ```
-
-3. **Async Operations**: All sync functionality also works in async mode.
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"The api_key client option must be set"**
-   - VLLM servers usually don't require API keys
-   - Try setting a dummy API key: `export OPENAI_API_KEY="dummy-key"`
-   - Or modify your VLLM server to not require authentication
-
-2. **Connection Errors**
-   - Ensure VLLM server is running on the expected port
-   - Check `VLLM_API_BASE` environment variable
-   - Verify the model is loaded in VLLM
-
-3. **Import Errors**
-   - Install test dependencies: `pip install -e ".[test]"`
-   - Ensure all required packages are available
-
-## Note
-
-These are integration tests that require an actual VLLM server to be running. If you don't have a VLLM server available, the tests will fail during the client initialization phase, which is expected behavior.
+3. **Test Requirements**: All tests require a running VLLM server with appropriate models loaded.
