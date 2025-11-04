@@ -8,17 +8,31 @@ A VLLM-optimized integration package for Qwen3 models with **LangChain 1.0**, fo
 
 This fork provides essential enhancements for VLLM environments:
 
-- **🔧 VLLM Native Support**: Optimized for VLLM backend with native `guided_json` support
-- **🧠 Thinking + Structured Output**: Unique capability to combine reasoning mode with structured output (not available in original BaiLian platform)
+- **🔧 VLLM Native Support**: Optimized for VLLM backend with Qwen3 models
+- **🧠 Thinking + Structured Output**: Unique capability to combine reasoning mode with structured output via ToolStrategy
 - **🤖 LangChain 1.0 Agents**: Full compatibility with modern LangChain 1.x agent framework using `create_agent()`
-- **📋 Provider Strategy**: Native structured output support for LangChain 1.0 agents
+- **🛠️ Tools + Structured Output**: ToolStrategy enables tools and structured output to work together
 - **⚡ Enhanced Performance**: Optimized for local/self-hosted VLLM deployments
+
+### 🎯 Quick Start for Structured Output
+
+For **vLLM+Qwen3**, always use this configuration:
+
+```python
+llm = ChatQwenVllm(enable_thinking=True)  # ✅ Must be True
+agent = create_agent(
+    model=llm,
+    tools=[...],
+    response_format=ToolStrategy(schema=YourSchema)  # ✅ Use ToolStrategy
+)
+```
 
 ### What's New in v1.0.0
 
 - ✅ Migrated to LangChain 1.0+ (langchain-core, langchain, langgraph)
 - ✅ Replaced DeepAgent with standard `create_agent()` API
-- ✅ Implemented Provider Strategy for structured output with agents
+- ✅ Implemented ToolStrategy for structured output with Qwen3+vLLM
+- ✅ Enable_thinking=True configuration for optimal agent performance
 - ✅ Added comprehensive integration tests for LangChain 1.x
 - ✅ Improved documentation and examples
 
@@ -29,10 +43,11 @@ For migration guide from 0.x to 1.0, see [LANGCHAIN_V1_MIGRATION.md](LANGCHAIN_V
 - **LangChain 1.0 Ready**: Fully compatible with LangChain 1.x, LangGraph 1.x
 - **Streaming Support**: Real-time synchronous and asynchronous streaming
 - **Reasoning Access**: Direct access to model's internal thinking process with `enable_thinking`
-- **Structured Output**: Provider Strategy with VLLM's native `guided_json` support
+- **Structured Output**: ToolStrategy for structured output with Qwen3+vLLM agents
 - **Tool Calling**: Function calling with parallel execution support
+- **Tools + Structured Output**: Unique combination via ToolStrategy (requires `enable_thinking=True`)
 - **Modern Agent Framework**: Full support for LangChain 1.0's `create_agent()` pattern
-- **Comprehensive Tests**: 19 integration tests covering all features
+- **Comprehensive Tests**: 12+ integration tests covering all features
 
 
 ## 📦 Installation
@@ -113,25 +128,37 @@ for chunk in llm.stream("Solve this math problem: 15 * 23 + 7"):
 
 ### Structured Output with Agents (LangChain 1.0)
 
-**🌟 New in v1.0: Native Provider Strategy support for structured output!**
+**🌟 New in v1.0: ToolStrategy for structured output with Qwen3+vLLM!**
+
+For vLLM+Qwen3 deployments, you must use `ToolStrategy` with `enable_thinking=True`:
 
 ```python
 from pydantic import BaseModel, Field
 from typing import List
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ProviderStrategy
+from langchain.agents.structured_output import ToolStrategy
 
 class AnalysisResult(BaseModel):
     summary: str = Field(description="Brief analysis summary")
     key_points: List[str] = Field(description="Key findings")
     confidence: float = Field(description="Confidence score 0-1")
 
-# Create agent with structured output using ProviderStrategy
+# Initialize LLM with thinking enabled (required for structured output)
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    temperature=0.1,
+    enable_thinking=True,  # ✅ Must be True for structured output with Qwen3
+)
+
+# Create agent with structured output using ToolStrategy
 agent = create_agent(
     model=llm,
     tools=[],
     system_prompt="You are an expert analyst.",
-    response_format=ProviderStrategy(AnalysisResult)  # Important: Use ProviderStrategy!
+    response_format=ToolStrategy(  # Use ToolStrategy, not ProviderStrategy
+        schema=AnalysisResult,
+        tool_message_content="Analysis complete!"
+    )
 )
 
 result = agent.invoke({
@@ -144,7 +171,7 @@ print(f"Key Points: {analysis.key_points}")
 print(f"Confidence: {analysis.confidence}")
 ```
 
-> **⚠️ Important**: Always use `ProviderStrategy(schema)` explicitly for ChatQwenVllm with agents to ensure VLLM's native `guided_json` is used.
+> **⚠️ Important**: For vLLM+Qwen3, always use `ToolStrategy` with `enable_thinking=True`. This combination is required for structured output to work correctly.
 
 ### Tool Calling
 
@@ -167,25 +194,54 @@ response = llm_with_tools.invoke("What's 25 * 4 + 12?")
 print(response.content)
 ```
 
-### Combined: Tools + Structured Output + Reasoning
+### Agent with Tools + Structured Output + Reasoning
+
+The unique power of vLLM+Qwen3: combine reasoning, tool calling, and structured output:
 
 ```python
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
+from langchain_core.tools import tool
+
+@tool
+def calculator(operation: str, a: float, b: float) -> str:
+    """Perform basic math operations."""
+    ops = {"add": lambda x,y: x+y, "multiply": lambda x,y: x*y}
+    return str(ops[operation](a, b))
+
 class CalculationReport(BaseModel):
     problem: str = Field(description="Original math problem")
     steps: List[str] = Field(description="Solution steps")
     answer: float = Field(description="Final numerical answer")
-    verification: str = Field(description="Verification of the result")
+    reasoning_summary: str = Field(description="Summary of reasoning process")
 
-# This powerful combination is unique to our VLLM implementation
-advanced_llm = llm.bind_tools([calculate]).with_structured_output(
-    schema=CalculationReport,
-    method="json_schema"
+# Initialize with thinking enabled
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    temperature=0.1,
+    enable_thinking=True,  # ✅ Required for this combination
 )
 
-result = advanced_llm.invoke("Solve step by step: (15 + 8) * 3 - 7")
-print(f"Problem: {result.problem}")
-print(f"Steps: {result.steps}")
-print(f"Answer: {result.answer}")
+# Create agent with tools and structured output
+agent = create_agent(
+    model=llm,
+    tools=[calculator],
+    system_prompt="You are a math expert. Use tools and explain your reasoning.",
+    response_format=ToolStrategy(
+        schema=CalculationReport,
+        tool_message_content="Calculation complete!"
+    )
+)
+
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "Calculate: (15 + 8) * 3"}]
+})
+
+report = result["structured_response"]
+print(f"Problem: {report.problem}")
+print(f"Steps: {report.steps}")
+print(f"Answer: {report.answer}")
+print(f"Reasoning: {report.reasoning_summary}")
 ```
 
 ## 🤖 LangChain 1.0 Agent Integration
@@ -229,85 +285,133 @@ for msg in result["messages"]:
     print(f"{msg.__class__.__name__}: {msg.content[:100]}...")
 ```
 
-### Agent with Structured Output
+### Agent with Tools and Structured Output
 
-Combine agent tool calling with structured output:
+Combine agent tool calling with structured output using `ToolStrategy`:
 
 ```python
 from pydantic import BaseModel, Field
-from langchain.agents.structured_output import ProviderStrategy
+from langchain.agents.structured_output import ToolStrategy
+from langchain_core.tools import tool
+
+@tool
+def calculator(operation: str, a: float, b: float) -> str:
+    """Perform basic math operations."""
+    operations = {
+        "add": lambda x, y: x + y,
+        "multiply": lambda x, y: x * y,
+        "subtract": lambda x, y: x - y,
+    }
+    return str(operations[operation](a, b))
 
 class ResearchReport(BaseModel):
     topic: str = Field(description="Research topic")
     summary: str = Field(description="Executive summary")
     key_findings: list[str] = Field(description="Main findings")
-    sources: list[str] = Field(description="Information sources used")
+    calculations: list[str] = Field(description="Any calculations performed")
 
-# Agent that returns structured research report
+# Initialize with thinking enabled
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    temperature=0.1,
+    enable_thinking=True,  # ✅ Required for Qwen3+vLLM
+)
+
+# Agent with tools that returns structured report
 agent = create_agent(
     model=llm,
-    tools=[web_search, calculator],
-    system_prompt="You are a research assistant. Use tools to gather information, then provide a structured report.",
-    response_format=ProviderStrategy(ResearchReport)
+    tools=[calculator],  # Tools work with ToolStrategy
+    system_prompt="You are a research assistant. Use tools when needed, then provide a structured report.",
+    response_format=ToolStrategy(  # ToolStrategy allows tools + structured output
+        schema=ResearchReport,
+        tool_message_content="Research complete!"
+    )
 )
 
 result = agent.invoke({
-    "messages": [{"role": "user", "content": "Research AI market trends in 2024"}]
+    "messages": [{"role": "user", "content": "Calculate market growth: 2023 revenue $100M, 2024 $150M. What's the percentage increase?"}]
 })
 
 report = result["structured_response"]
 print(f"Topic: {report.topic}")
 print(f"Summary: {report.summary}")
-print(f"Key Findings: {report.key_findings}")
+print(f"Findings: {report.key_findings}")
+print(f"Calculations: {report.calculations}")
 ```
 
-> **⚠️ Note**: When using `response_format` with agents, tools cannot be called in the final response. For tool calling + structured output, process in multiple steps or use `with_structured_output()` on the model directly.
+> **💡 Key Point**: `ToolStrategy` converts your structured output schema into a special tool, allowing it to coexist with regular tools. This is essential for vLLM+Qwen3 which cannot handle `guided_json` and `tools` simultaneously.
 
-## ⚠️ Important Limitations
+## ⚠️ Important Requirements for vLLM+Qwen3
 
-### Structured Output Constraints
+### Structured Output: Required Configuration
 
-Due to VLLM's implementation, the following combinations are **not supported**:
+For structured output with agents in vLLM+Qwen3, you **must** use this specific combination:
 
 ```python
-# ❌ Cannot use guided_json with enable_thinking
-llm = ChatQwenVllm(enable_thinking=True)
-agent = create_agent(
-    model=llm,
-    response_format=ProviderStrategy(MySchema)  # Will fail or disable thinking
+from langchain.agents.structured_output import ToolStrategy
+
+# ✅ CORRECT: enable_thinking=True + ToolStrategy
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    enable_thinking=True,  # ✅ Must be True for Qwen3
 )
 
-# ❌ Cannot use guided_json with tools in the same call
 agent = create_agent(
     model=llm,
-    tools=[my_tool],  # Tools will be removed when structured output is used
-    response_format=ProviderStrategy(MySchema)
+    tools=[...],  # Can have tools or empty list
+    response_format=ToolStrategy(  # Must use ToolStrategy
+        schema=MySchema,
+        tool_message_content="Task complete!"
+    )
 )
 
-# ✅ Use structured output without thinking/tools
+# ❌ WRONG: enable_thinking=False causes failures
 llm = ChatQwenVllm(enable_thinking=False)
 agent = create_agent(
     model=llm,
-    tools=[],  # No tools
-    response_format=ProviderStrategy(MySchema)
+    response_format=ToolStrategy(MySchema)  # Will fail with Qwen3
 )
 
-# ✅ Or use with_structured_output for more flexibility
-structured_llm = llm.with_structured_output(MySchema, method="json_schema")
-result = structured_llm.invoke("Your query")
+# ❌ WRONG: ProviderStrategy doesn't work with Qwen3
+llm = ChatQwenVllm(enable_thinking=True)
+agent = create_agent(
+    model=llm,
+    response_format=ProviderStrategy(MySchema)  # Don't use this
+)
 ```
 
-### Provider Strategy Requirement
+### Why This Configuration?
 
-Always use `ProviderStrategy` explicitly with `create_agent`:
+1. **enable_thinking=True**: Qwen3 models require thinking mode for proper tool-calling behavior
+2. **ToolStrategy**: vLLM cannot handle `guided_json` (ProviderStrategy) with tools simultaneously
+3. **Works with or without tools**: ToolStrategy converts the schema into a special tool that coexists with regular tools
+
+### Strategy Comparison
+
+| Configuration | Works? | Use Case |
+|---------------|--------|----------|
+| `enable_thinking=True` + `ToolStrategy` | ✅ | **Recommended for all agents with Qwen3** |
+| `enable_thinking=False` + `ToolStrategy` | ❌ | Fails with Qwen3 |
+| `enable_thinking=True` + `ProviderStrategy` | ❌ | Tools get removed |
+| `enable_thinking=False` + `ProviderStrategy` | ❌ | Fails with Qwen3 |
+
+### Direct LLM Usage (No Agent)
+
+For non-agent scenarios, you can use `with_structured_output`:
 
 ```python
-# ✅ Correct - Explicit ProviderStrategy
-from langchain.agents.structured_output import ProviderStrategy
-response_format=ProviderStrategy(MySchema)
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    enable_thinking=False  # Can be False for direct usage
+)
 
-# ❌ Not recommended - May fall back to ToolStrategy
-response_format=MySchema
+structured_llm = llm.with_structured_output(
+    schema=MySchema,
+    method="json_schema"
+)
+
+result = structured_llm.invoke("Your query")
+# Returns instance of MySchema
 ```
 
 ## 📊 Advanced Examples
@@ -384,15 +488,18 @@ asyncio.run(process_requests())
 
 ## 🔄 Comparison with Original
 
-| Feature | Original (BaiLian) | Our VLLM Fork |
-|---------|-------------------|---------------|
+| Feature | Original (BaiLian) | Our VLLM Fork (Qwen3) |
+|---------|-------------------|------------------------|
 | Thinking Mode | ✅ | ✅ |
 | Structured Output | ✅ | ✅ |
-| **Thinking + Structured** | ❌ | ✅ |
+| **Thinking + Structured (ToolStrategy)** | ❌ | ✅ Required |
+| **Tools + Structured Output** | ❌ | ✅ Via ToolStrategy |
 | Tool Calling | ✅ | ✅ |
 | LangChain 1.0 Agents | ❌ | ✅ Full Support |
 | Local Deployment | ❌ | ✅ |
 | Custom VLLM Optimizations | ❌ | ✅ |
+
+**Key Difference**: Our implementation requires `enable_thinking=True` + `ToolStrategy` for structured output with agents, enabling unique combinations not possible with other implementations.
 
 ## 📁 Project Structure
 
@@ -446,13 +553,55 @@ pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py
    python docs/vllm_structured_output_example.py
    ```
 
+## 📚 Quick Reference Guide
+
+### For Structured Output with Agents (Qwen3+vLLM)
+
+**✅ Always Use This Pattern:**
+
+```python
+from langchain.agents.structured_output import ToolStrategy
+
+llm = ChatQwenVllm(
+    model="Qwen/Qwen3-32B",
+    enable_thinking=True  # Must be True
+)
+
+agent = create_agent(
+    model=llm,
+    tools=[...],  # With or without tools
+    response_format=ToolStrategy(
+        schema=YourSchema,
+        tool_message_content="Done!"
+    )
+)
+```
+
+### Common Patterns
+
+| Task | Configuration | Example |
+|------|---------------|---------|
+| Data extraction | `enable_thinking=True` + `ToolStrategy` | Extract contact info |
+| Agent with calculations | `enable_thinking=True` + `ToolStrategy` + `tools=[calculator]` | Math problem solver |
+| Multi-tool workflow | `enable_thinking=True` + `ToolStrategy` + `tools=[...]` | Research assistant |
+| Direct LLM call | `enable_thinking=False` + `with_structured_output()` | Simple query |
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Internal Server Error" | Ensure `enable_thinking=True` |
+| Tools not called | Check tool descriptions are clear |
+| No structured response | Verify using `ToolStrategy`, not `ProviderStrategy` |
+| finish_reason="stop" too early | Confirm `enable_thinking=True` |
+
 ## 🤝 Contributing
 
 This project focuses on VLLM optimization and LangChain 1.0 integration. Contributions are welcome for:
 
 - VLLM performance optimizations
 - LangChain 1.0 agent workflow examples
-- Advanced reasoning + structured output use cases
+- Advanced reasoning + structured output use cases with ToolStrategy
 - Documentation improvements
 
 ## 📝 License

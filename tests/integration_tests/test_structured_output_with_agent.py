@@ -34,7 +34,7 @@ class TestStructuredOutputWithAgent:
             model="Qwen/Qwen3-32B",
             temperature=0.1,
             max_tokens=2000,
-            enable_thinking=True, 
+            enable_thinking=True,  # Required for ToolStrategy with Qwen3+vLLM
         )
 
     def test_simple_structured_output_with_pydantic(self):
