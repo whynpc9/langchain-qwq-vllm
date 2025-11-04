@@ -1,15 +1,13 @@
 """Integration tests for ChatQwenVllm with LangChain 1.x agents."""
 
 import os
-from typing import Literal
 
-import pytest
 from dotenv import load_dotenv
 
-from langchain_qwq.chat_models_vllm import ChatQwenVllm
 from langchain.agents import create_agent
-from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
+from langchain_qwq.chat_models_vllm import ChatQwenVllm
 
 load_dotenv()
 
@@ -73,14 +71,58 @@ class TestChatQwenVllmWithLangChainAgent:
         # Test the agent (requires VLLM server running)
         # Note: Actual invocation will fail without server, but creation should succeed
         assert agent is not None
-        print(f"Agent created successfully: {type(agent)}")
+        print(f"✓ Agent created successfully: {type(agent)}")
+        
+    def test_agent_tools_are_bound_correctly(self):
+        """Verify that tools are correctly bound to the LLM when using create_agent."""
+        
+        @tool
+        def test_tool(x: int) -> int:
+            """A simple test tool."""
+            return x * 2
+        
+        # Manually bind tools to verify the pattern
+        llm_with_tools = self.llm.bind_tools([test_tool])
+        
+        # Check the bound LLM has tools in kwargs
+        from langchain_core.runnables.base import RunnableBinding
+        assert isinstance(llm_with_tools, RunnableBinding)
+        assert 'tools' in llm_with_tools.kwargs
+        
+        # Check tool schema
+        tools_schema = llm_with_tools.kwargs['tools']
+        assert len(tools_schema) == 1
+        assert 'function' in tools_schema[0]
+        assert tools_schema[0]['function']['name'] == 'test_tool'
+        
+        print(f"✓ Tools correctly bound to LLM")
+        print(f"  Tool schema: {tools_schema[0]['function']['name']}")
+        
+        # Now create an agent and verify it also binds tools
+        agent = create_agent(
+            model=self.llm,
+            tools=[test_tool],
+            system_prompt="You are a helpful assistant."
+        )
+        
+        # The agent should be a compiled graph
+        assert agent is not None
+        print(f"✓ Agent created with tools: {type(agent)}")
 
     def test_agent_with_calculator(self):
         """Test agent with calculator tool execution."""
         
+        tool_call_count = {"count": 0}
+        
         @tool
         def calculator(operation: str, a: float, b: float) -> str:
             """Perform basic math operations."""
+            tool_call_count["count"] += 1
+            print(
+                f"[TOOL CALL] calculator: operation={operation}, "
+                f"a={a}, b={b}"
+            )
+            
             operations = {
                 "add": lambda x, y: x + y,
                 "subtract": lambda x, y: x - y,
@@ -95,13 +137,16 @@ class TestChatQwenVllmWithLangChainAgent:
         agent = create_agent(
             model=self.llm,
             tools=[calculator],
-            system_prompt="You are a helpful math assistant."
+            system_prompt=(
+                "You are a helpful math assistant. "
+                "Use the calculator tool for all calculations."
+            )
         )
 
         # Test with a simple calculation
         result = agent.invoke({
             "messages": [
-                HumanMessage(content="Calculate 15 * 8 + 23")
+                HumanMessage(content="Use the calculator to multiply 15 and 8")
             ]
         })
 
@@ -109,51 +154,105 @@ class TestChatQwenVllmWithLangChainAgent:
         assert "messages" in result
         assert len(result["messages"]) > 0
         
+        # Check if tool was actually called
+        has_tool_calls = False
+        for msg in result["messages"]:
+            print(f"Message type: {type(msg).__name__}")
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                has_tool_calls = True
+                print(f"Tool calls found: {msg.tool_calls}")
+            if hasattr(msg, 'content'):
+                content = msg.content[:200] if msg.content else 'None'
+                print(f"Content: {content}")
+        
+        # Verify tool was actually invoked
+        assert tool_call_count["count"] > 0, (
+            "Calculator tool was never called!"
+        )
+        assert has_tool_calls, "No tool_calls found in messages!"
+        
         final_message = result["messages"][-1]
         assert hasattr(final_message, 'content')
         assert final_message.content is not None
         
+        print(f"✓ Tool was called {tool_call_count['count']} time(s)")
         print(f"Final answer: {final_message.content}")
 
     def test_agent_with_multiple_tools(self):
         """Test agent with multiple tools."""
         
+        tool_calls = {"add": 0, "multiply": 0, "power": 0}
+        
         @tool
         def add(a: int, b: int) -> int:
             """Add two numbers."""
+            tool_calls["add"] += 1
+            print(f"[TOOL CALL] add({a}, {b})")
             return a + b
         
         @tool
         def multiply(a: int, b: int) -> int:
             """Multiply two numbers."""
+            tool_calls["multiply"] += 1
+            print(f"[TOOL CALL] multiply({a}, {b})")
             return a * b
         
         @tool
         def power(base: int, exponent: int) -> int:
             """Calculate base raised to exponent."""
+            tool_calls["power"] += 1
+            print(f"[TOOL CALL] power({base}, {exponent})")
             return base ** exponent
 
         agent = create_agent(
             model=self.llm,
             tools=[add, multiply, power],
-            system_prompt="You are a math expert. Use the tools to solve problems step by step."
+            system_prompt=(
+                "You are a math expert. "
+                "Use the tools to solve problems step by step."
+            )
         )
 
         result = agent.invoke({
             "messages": [
-                HumanMessage(content="Calculate (2 + 3) * 4 and then raise that to power 2")
+                HumanMessage(
+                    content=(
+                        "Use the tools to calculate: "
+                        "first add 2 and 3, then multiply by 4"
+                    )
+                )
             ]
         })
 
         assert "messages" in result
         assert len(result["messages"]) > 0
+        
+        # Verify tools were actually called
+        total_calls = sum(tool_calls.values())
+        assert total_calls > 0, (
+            f"No tools were called! Tool calls: {tool_calls}"
+        )
+        
+        print(f"✓ Tools called: {tool_calls}, total: {total_calls}")
+        
+        # Check for tool_calls in messages
+        has_tool_calls = any(
+            hasattr(msg, 'tool_calls') and msg.tool_calls 
+            for msg in result["messages"]
+        )
+        assert has_tool_calls, "No tool_calls found in agent messages!"
 
     def test_agent_with_thinking_enabled(self):
         """Test that thinking mode works with agents."""
         
+        tool_called = {"count": 0}
+        
         @tool
         def analyze_number(n: int) -> str:
             """Analyze properties of a number."""
+            tool_called["count"] += 1
+            print(f"[TOOL CALL] analyze_number({n})")
+            
             is_even = n % 2 == 0
             is_prime = n > 1 and all(n % i != 0 for i in range(2, int(n**0.5) + 1))
             return f"Number {n}: even={is_even}, prime={is_prime}"
@@ -169,22 +268,46 @@ class TestChatQwenVllmWithLangChainAgent:
         agent = create_agent(
             model=llm_thinking,
             tools=[analyze_number],
-            system_prompt="You are a number theory expert."
+            system_prompt=(
+                "You are a number theory expert. "
+                "Use the analyze_number tool for all number analysis."
+            )
         )
 
         result = agent.invoke({
             "messages": [
-                HumanMessage(content="Analyze the number 17")
+                HumanMessage(
+                    content=(
+                        "Use the analyze_number tool "
+                        "to analyze the number 17"
+                    )
+                )
             ]
         })
 
         assert "messages" in result
+        
+        # Verify tool was called
+        assert tool_called["count"] > 0, (
+            "analyze_number tool was never called!"
+        )
+        print(f"✓ Tool called {tool_called['count']} time(s)")
+        
         # Check if we got reasoning in the response
+        found_reasoning = False
         for msg in result["messages"]:
             if hasattr(msg, 'additional_kwargs'):
                 if "reasoning_content" in msg.additional_kwargs:
-                    print(f"Found reasoning: {msg.additional_kwargs['reasoning_content'][:100]}...")
+                    reasoning = (
+                        msg.additional_kwargs['reasoning_content'][:100]
+                    )
+                    print(f"✓ Found reasoning: {reasoning}...")
+                    found_reasoning = True
                     break
+        
+        # Note: reasoning might not always be present depending on model behavior
+        if found_reasoning:
+            print("✓ Thinking mode is working with agent")
 
     def test_agent_with_error_handling(self):
         """Test agent error handling with failing tools."""
@@ -199,7 +322,10 @@ class TestChatQwenVllmWithLangChainAgent:
         agent = create_agent(
             model=self.llm,
             tools=[unreliable_tool],
-            system_prompt="You are a resilient assistant that handles tool failures gracefully."
+            system_prompt=(
+                "You are a resilient assistant that handles "
+                "tool failures gracefully."
+            )
         )
 
         # This should succeed (agent creation)
@@ -209,28 +335,50 @@ class TestChatQwenVllmWithLangChainAgent:
     def test_streaming_agent_execution(self):
         """Test agent execution with streaming."""
         
+        tool_called = {"count": 0}
+        
         @tool
         def get_info(topic: str) -> str:
             """Get information about a topic."""
-            return f"Information about {topic}: This is a test response."
+            tool_called["count"] += 1
+            print(f"[TOOL CALL] get_info({topic})")
+            return (
+                f"Information about {topic}: "
+                f"This is a test response with detailed content."
+            )
 
         agent = create_agent(
             model=self.llm,
             tools=[get_info],
-            system_prompt="You are an informative assistant."
+            system_prompt=(
+                "You are an informative assistant. "
+                "Use the get_info tool to look up information."
+            )
         )
 
         # Stream the execution
         chunks = []
         for chunk in agent.stream({
             "messages": [
-                HumanMessage(content="Tell me about Python programming")
+                HumanMessage(
+                    content=(
+                        "Use the get_info tool to tell me "
+                        "about Python programming"
+                    )
+                )
             ]
         }, stream_mode="updates"):
             chunks.append(chunk)
-            print(f"Received chunk: {chunk}")
+            print(f"Received chunk type: {type(chunk)}")
 
         assert len(chunks) > 0
+        assert tool_called["count"] > 0, (
+            "get_info tool was never called during streaming!"
+        )
+        print(
+            f"✓ Tool called {tool_called['count']} time(s) "
+            f"during streaming"
+        )
 
     def test_agent_compatibility_with_enable_thinking(self):
         """Test that enable_thinking parameter is properly set."""
@@ -243,12 +391,15 @@ class TestChatQwenVllmWithLangChainAgent:
         assert llm.enable_thinking is True
         
         # Access _default_params to trigger extra_body initialization
-        params = llm._default_params
+        _ = llm._default_params
         
         # Now check extra_body configuration
         assert llm.extra_body is not None
         assert "chat_template_kwargs" in llm.extra_body
-        assert llm.extra_body["chat_template_kwargs"]["enable_thinking"] is True
+        assert (
+            llm.extra_body["chat_template_kwargs"]["enable_thinking"]
+            is True
+        )
         
         print(f"✓ enable_thinking properly configured: {llm.extra_body}")
 
@@ -265,6 +416,26 @@ class TestChatQwenVllmWithLangChainAgent:
         # Verify it's a RunnableBinding
         from langchain_core.runnables.base import RunnableBinding
         assert isinstance(llm_with_tools, RunnableBinding)
+        
+        # Verify tools are in the kwargs
+        assert hasattr(llm_with_tools, 'kwargs')
+        assert 'tools' in llm_with_tools.kwargs
+        print(f"✓ Tools bound: {len(llm_with_tools.kwargs['tools'])} tool(s)")
+        
+        # Test actual invocation with tool call
+        response = llm_with_tools.invoke("Use test_tool to process 'hello'")
+        
+        # Check that the response has tool_calls
+        if hasattr(response, 'tool_calls'):
+            print(
+                f"✓ Tool calls in response: {len(response.tool_calls)}"
+            )
+        if hasattr(response, 'content'):
+            content = (
+                response.content[:100] if response.content else 'None'
+            )
+            print(f"Response content: {content}")
+        
         print("✓ Tool binding works correctly")
 
 
@@ -298,8 +469,13 @@ class TestChatQwenVllmCompatibility:
         import langchain_core
         
         # Check versions
-        assert langchain.__version__.startswith("1."), f"Expected LangChain 1.x, got {langchain.__version__}"
-        assert langchain_core.__version__.startswith("1."), f"Expected langchain-core 1.x, got {langchain_core.__version__}"
+        assert langchain.__version__.startswith("1."), (
+            f"Expected LangChain 1.x, got {langchain.__version__}"
+        )
+        assert langchain_core.__version__.startswith("1."), (
+            f"Expected langchain-core 1.x, "
+            f"got {langchain_core.__version__}"
+        )
         
         print(f"✓ LangChain versions:")
         print(f"  - langchain: {langchain.__version__}")
@@ -324,18 +500,36 @@ if __name__ == "__main__":
     test_compat.test_required_methods_exist()
     
     print("\n" + "=" * 60)
-    print("Running Agent Tests")
+    print("Running Agent Tests (Non-Server)")
     print("=" * 60)
     
     test_agent = TestChatQwenVllmWithLangChainAgent()
     test_agent.setup_method()
+    
+    print("\n1. Testing basic agent creation...")
     test_agent.test_basic_agent_creation()
+    
+    print("\n2. Testing tool binding...")
+    test_agent.test_agent_tools_are_bound_correctly()
+    
+    print("\n3. Testing error handling...")
     test_agent.test_agent_with_error_handling()
+    
+    print("\n4. Testing enable_thinking compatibility...")
     test_agent.test_agent_compatibility_with_enable_thinking()
+    
+    print("\n5. Testing tool binding compatibility...")
     test_agent.test_tool_binding_compatibility()
     
     print("\n" + "=" * 60)
     print("✓ All non-server tests passed!")
-    print("Note: Tests requiring VLLM server are skipped")
+    print("\nNote: The following tests require a VLLM server running:")
+    print("  - test_agent_with_calculator")
+    print("  - test_agent_with_multiple_tools")
+    print("  - test_agent_with_thinking_enabled")
+    print("  - test_streaming_agent_execution")
+    print("\nTo run these tests, start a VLLM server and use pytest:")
+    print("  vllm serve Qwen/Qwen3-32B --port 8000")
+    print("  pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py")
     print("=" * 60)
 
