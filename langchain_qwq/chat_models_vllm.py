@@ -193,7 +193,17 @@ class ChatQwenVllm(ChatQwen):
                 "chat_template_kwargs", {}
             )
             chat_template_kwargs["enable_thinking"] = self.enable_thinking
+        if self.thinking_budget is not None:
+            request_extra_body["thinking_budget"] = self.thinking_budget
         return request_extra_body
+
+    def _consume_temp_binding_kwargs(self) -> Dict[str, Any]:
+        """Consume kwargs captured from a surrounding RunnableBinding."""
+        bind_kwargs: Dict[str, Any] = {}
+        if hasattr(self, "_temp_binding_kwargs"):
+            bind_kwargs.update(self._temp_binding_kwargs)
+            delattr(self, "_temp_binding_kwargs")
+        return bind_kwargs
 
     @staticmethod
     def _set_enable_thinking(
@@ -473,13 +483,14 @@ class ChatQwenVllm(ChatQwen):
             )
 
         if self._resolved_vllm_mode() == "modern":
-            from langchain_core.runnables import RunnableLambda
-            from langchain_openai.chat_models.base import _is_pydantic_class
-
             strict = kwargs.pop("strict", None)
             is_pydantic_schema = _is_pydantic_class(schema)
+            bound_llm: Any = self
+            bind_kwargs = self._consume_temp_binding_kwargs()
+            if bind_kwargs:
+                bound_llm = self.bind(**bind_kwargs)
             raw_chain = BaseChatOpenAI.with_structured_output(
-                self,
+                bound_llm,
                 schema=schema,
                 method="json_schema",
                 include_raw=True,
@@ -555,14 +566,7 @@ class ChatQwenVllm(ChatQwen):
         extra_body["guided_json"] = schema_dict
         
         # Start with existing kwargs (like tools) from RunnableBinding
-        bind_kwargs = {}
-        
-        # Handle the case where this method is called via RunnableBinding.__getattr__
-        # In this case, we need to get the binding kwargs from the calling context.
-        # We use a temporary attribute to store binding kwargs during the call.
-        if hasattr(self, '_temp_binding_kwargs'):
-            bind_kwargs.update(self._temp_binding_kwargs)
-            delattr(self, '_temp_binding_kwargs')
+        bind_kwargs = self._consume_temp_binding_kwargs()
         
         # Merge existing extra_body with guided_json
         if 'extra_body' in bind_kwargs:

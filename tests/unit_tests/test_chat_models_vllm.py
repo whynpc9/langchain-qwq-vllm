@@ -1,8 +1,11 @@
 """Unit tests for ChatQwenVllm payload shaping."""
 
 import os
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
+from langchain_openai.chat_models.base import BaseChatOpenAI
 from pydantic import BaseModel
 
 from langchain_qwq.chat_models_vllm import ChatQwenVllm
@@ -219,3 +222,73 @@ def test_reasoning_json_is_promoted_into_content_for_provider_strategy() -> None
         "name": "John Doe",
         "email": "john@example.com",
     }
+
+
+def test_modern_with_structured_output_preserves_bound_kwargs() -> None:
+    class ContactInfo(BaseModel):
+        name: str
+        email: str
+
+    llm = ChatQwenVllm(
+        model="Qwen/Qwen3-32B",
+        base_url="http://localhost:8301/v1",
+        vllm_mode="modern",
+    )
+    llm._temp_binding_kwargs = {
+        "tools": _tool_schema(),
+        "tool_choice": "required",
+    }
+
+    bound_sentinel = object()
+    captured: dict = {}
+
+    def fake_with_structured_output(self_arg: object, **kwargs: object) -> RunnableLambda:
+        captured["self"] = self_arg
+        captured["kwargs"] = kwargs
+        return RunnableLambda(
+            lambda _: {
+                "raw": AIMessage(content='{"name":"John","email":"john@example.com"}'),
+                "parsed": {"name": "John", "email": "john@example.com"},
+                "parsing_error": None,
+            }
+        )
+
+    with (
+        patch.object(
+            ChatQwenVllm,
+            "bind",
+            autospec=True,
+            return_value=bound_sentinel,
+        ) as bind_mock,
+        patch.object(
+            BaseChatOpenAI,
+            "with_structured_output",
+            autospec=True,
+            side_effect=fake_with_structured_output,
+        ),
+    ):
+        llm.with_structured_output(ContactInfo, include_raw=True)
+
+    bind_mock.assert_called_once_with(
+        llm,
+        tools=_tool_schema(),
+        tool_choice="required",
+    )
+    assert captured["self"] is bound_sentinel
+    assert getattr(llm, "_temp_binding_kwargs", None) is None
+
+
+def test_default_params_forward_thinking_budget_without_top_level_enable_thinking() -> None:
+    llm = ChatQwenVllm(
+        model="Qwen/Qwen3-32B",
+        base_url="http://localhost:8000/v1",
+        enable_thinking=True,
+        thinking_budget=128,
+        vllm_mode="legacy",
+    )
+
+    params = llm._default_params
+
+    assert params["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert params["extra_body"]["thinking_budget"] == 128
+    assert "enable_thinking" not in params["extra_body"]
