@@ -37,9 +37,10 @@ disallow_untyped_defs = true
 "Release Notes" = "https://github.com/langchain-ai/langchain/releases?q=tag%3A%22qwq%3D%3D0%22&expanded=true"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0"
+python = ">=3.10,<4.0"
+langchain = "^1.0.0"
 langchain-core = "^1.0.0"
-openai = "^1.70.0"
+openai = "^1.109.1"
 langchain-openai = "^1.0.0"
 python-dotenv = "^1.1.0"
 json-repair = "^0.40.0"

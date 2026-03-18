@@ -192,31 +192,33 @@ print(f"Final answer: {final_message.content}")
 ### Q: 结构化输出可以和工具调用同时使用吗？
 
 **A:** 
-不建议，VLLM 的限制：
+不建议直接依赖 `legacy` 的原生组合能力，限制主要在旧的 `guided_json` 路径：
 - ❌ `guided_json` + `tools` 不能同时使用
 - ❌ `guided_json` + `enable_thinking` 不能同时使用
 
-如需同时使用，建议分两步：
-1. 先用工具收集信息
-2. 再用结构化输出格式化结果
+当前推荐做法：
+1. `legacy` 端点下优先使用 `ToolStrategy`
+2. `modern` 端点下优先使用 native `ProviderStrategy` 或 `ToolStrategy`
+3. 具体 limitation 见 `docs/CREATE_AGENT_LIMITATIONS.md`
 
-## 运行测试
+## 运行验证
 
 ```bash
-# 启动 VLLM 服务器
-vllm serve Qwen/Qwen3-32B --port 8000
+# 稳定单测
+python3 -m pytest tests/unit_tests/test_chat_models_vllm.py -q
 
-# 运行测试
-pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py -v
+# 原始 vLLM 能力探针
+python3 tests/scripts/validate_vllm_qwen_endpoints.py
 
-# 只运行特定测试
-pytest tests/integration_tests/test_chat_models_vllm_langchain_agent.py::TestChatQwenVllmWithLangChainAgent::test_agent_with_calculator -v
+# LangChain 1.x create_agent() 探针（需要 Python 3.10+）
+PYTHONPATH=/tmp/langchain1py311:. python3.11 tests/scripts/validate_create_agent_endpoints.py
 ```
 
 ## 参考资料
 
 - [LangChain 1.x Agent 文档](https://python.langchain.com/docs/modules/agents/)
 - [VLLM Tool Calling 文档](https://docs.vllm.ai/en/latest/)
-- [测试用例](../tests/integration_tests/test_chat_models_vllm_langchain_agent.py)
-
+- [create_agent limitation 说明](./CREATE_AGENT_LIMITATIONS.md)
+- [原始端点探针](../tests/scripts/validate_vllm_qwen_endpoints.py)
+- [create_agent 端点探针](../tests/scripts/validate_create_agent_endpoints.py)
 
